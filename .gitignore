@@ -3,7 +3,6 @@ __pycache__/
 .venv/
 venv/
 build/
-dist/
 release/
 *.exe
 *.zip
@@ -21,3 +20,9 @@ smoke*.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# File distribuiti: inclusi anche nel download ZIP della repository.
+!/LaboratorioRobot.exe
+/dist/*
+!/dist/LaboratorioRobot-Windows.zip
+!/dist/LaboratorioRobot-Sorgenti.zip

@@ -4,7 +4,11 @@ Realizzato dal **Prof. Barillà Francesco**. Laboratorio offline per alunni di p
 
 ## Avvio
 
-Questo repository contiene i sorgenti del laboratorio. Puoi avviarli con Python oppure costruire localmente l?eseguibile Windows x64 seguendo la sezione Ricostruzione. Gli eseguibili e i progressi personali non sono inclusi nei file del repository. Il gioco funziona offline, senza account.
+Su GitHub scegliere **Code → Download ZIP** ed estrarre l'intera cartella scaricata. Il download include i sorgenti, **LaboratorioRobot.exe** e i due archivi nella cartella **dist**.
+
+Aprire **LaboratorioRobot.exe nella cartella principale** oppure `Avvia_Robot.cmd`. Per gli alunni distribuire `dist/LaboratorioRobot-Windows.zip`: va estratto completamente in una cartella scrivibile. Non richiede installazione, account, connessione o compilatori. Eseguibile Windows x64.
+
+I progressi personali (`progressi_cicli.json`) vengono creati dall'app e non sono pubblicati su GitHub. Le cartelle `build`, `__pycache__` e gli ambienti virtuali contengono file di lavoro generati sul computer e sono esclusi da Git.
 
 Per avviare i sorgenti con Python 3.10 o successivo:
 
