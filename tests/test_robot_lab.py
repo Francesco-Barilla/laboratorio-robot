@@ -246,7 +246,10 @@ class InterfaceTests(unittest.TestCase):
         app.modal = None
         app.action('try_game')
         self.assertNotEqual(app.editor.value, app.mission.solution(app.language))
-        self.assertIn('Scrivi', app.editor.value)
+        self.assertEqual(app.editor.value, '')
+        app.action('focus_code')
+        app.event(self.pygame.event.Event(self.pygame.TEXTINPUT, text='avanza()'))
+        self.assertEqual(app.editor.value, 'avanza()')
 
     def test_language_translation_and_incomplete_draft_preservation(self):
         app = self.app()
@@ -306,10 +309,10 @@ class InterfaceTests(unittest.TestCase):
             app.event(self.pygame.event.Event(self.pygame.MOUSEBUTTONDOWN, button=1, pos=rect.center))
             app.event(self.pygame.event.Event(self.pygame.MOUSEMOTION, pos=target, rel=(0, 0), buttons=(1, 0, 0)))
             app.event(self.pygame.event.Event(self.pygame.MOUSEBUTTONUP, button=1, pos=target))
-        drag('add:avanza', (950, 446))
-        drag('add:raccogli', (950, 489))
+        drag('add:avanza', (app.body_rect.centerx, app.body_rect.y + 18))
+        drag('add:raccogli', (app.body_rect.centerx, app.body_rect.y + 60))
         self.assertEqual(app.block_data['actions'], ['avanza', 'raccogli'])
-        drag('body:1', (950, 429))
+        drag('body:1', (app.body_rect.centerx, app.body_rect.y + 2))
         self.assertEqual(app.block_data['actions'], ['raccogli', 'avanza'])
 
     def test_editor_undo_and_multiline_navigation(self):

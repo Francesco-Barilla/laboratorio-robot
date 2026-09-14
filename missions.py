@@ -41,7 +41,7 @@ class Mission:
 
     def starter(self, language, difficulty):
         if difficulty == 'Difficile':
-            return ('# ' if language == 'Python' else '// ') + 'Scrivi il programma del robot. Apri Comandi e codice per un aiuto.\n'
+            return ''
         code = self.solution(language)
         if self.loop == 'for':
             return code.replace(f', {self.count},', ', ???,', 1) if language == 'Python' else code.replace(f'< {self.count};', '< ???;', 1)

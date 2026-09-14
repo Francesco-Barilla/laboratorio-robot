@@ -231,13 +231,39 @@ class BraceParser:
         return out
 
 
+def placeholder_index(source, language):
+    """Find unfinished code, leaving comments and quoted text alone."""
+    i = 0
+    while i < len(source):
+        if (language == 'Python' and source[i] == '#') or (language != 'Python' and source.startswith('//', i)):
+            end = source.find('\n', i)
+            i = len(source) if end < 0 else end + 1
+        elif source[i] in ('"', "'"):
+            quote = source[i]
+            i += 1
+            while i < len(source):
+                if source[i] == '\\':
+                    i += 2
+                elif source[i] == quote:
+                    i += 1
+                    break
+                else:
+                    i += 1
+        elif source.startswith('???', i):
+            return i
+        else:
+            i += 1
+    return -1
+
+
 def parse(source, language):
     if language not in LANGUAGES:
         raise CodeError('Linguaggio non disponibile.')
     if len(source) > 14000 or source.count('\n') > 250:
         raise CodeError('Il laboratorio accetta programmi fino a 250 righe e 14000 caratteri.')
-    if '???' in source:
-        raise CodeError('Completa il punto indicato con ??? prima di eseguire.', source[:source.index('???')].count('\n') + 1)
+    gap = placeholder_index(source, language)
+    if gap >= 0:
+        raise CodeError('Completa il punto indicato con ??? prima di eseguire.', source[:gap].count('\n') + 1)
     try:
         if language == 'Python':
             nodes = python_nodes(ast.parse(source).body)

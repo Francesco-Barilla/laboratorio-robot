@@ -19,10 +19,16 @@ python main.py
 
 ## Percorso didattico
 
-- **Impara**: nove esempi con guida scorrevole, concetti, confronto tra cicli e codice nel linguaggio scelto. Esecuzione automatica, pausa, avanti e indietro. Aprire una spiegazione congela la simulazione fino alla chiusura.
-- **Gioca**: nove missioni, tutte accessibili in tre difficoltà. Facile: blocchi trascinabili o aggiunti con un clic, riordinabili anche con frecce; Medio: completamento di codice; Difficile: scrittura del programma. La difficoltà cambia gli strumenti disponibili sulla stessa missione.
-- **Feedback**: riga e blocco attivo, sensori, contatori, errori legati allo stato effettivo del robot, tremolio in caso di errore, suggerimenti progressivi e soluzione consultabile. La soluzione non compila il tentativo né assegna la vittoria.
-- **Interfaccia**: card con bordo luminoso e cursore a mano, tre temi (Notte, Giorno, Contrasto), testo ingrandibile, F11, velocità da 0.5× a 3×, ridimensionamento proporzionale e firma in ogni schermata.
+- **Impara**: leggi il codice e la scena, scegli una risposta fra tre e osserva il perché. Le nove domande allenano conteggio dei giri, ordine del corpo e momento del controllo. Risposta errata e spiegazione restano visibili; puoi riprovare. Una previsione corretta resta tale anche quando il robot non si sposta. Spiegami il ciclo apre la guida con concetti e confronto tra linguaggi.
+- **Gioca**: due pannelli numerati distinguono programma e risultato. Facile: scegli numero o condizione, poi aggiungi e ordina le azioni del corpo. Medio: Completa i ??? seleziona solo il segnaposto e indica se scrivere un numero o un comando. Difficile: Scrivi qui attiva l'editor, con un esempio completo in Cosa devo scrivere?. Tutte le nove missioni restano accessibili nei tre livelli.
+- **Verifica immediata**: Controlla i blocchi o Controlla il mio programma mostra subito Missione completata oppure Da correggere. Il confronto indica traguardo, oggetti o scansioni e uso del ciclo richiesto. Perché? apre il messaggio completo. Correggere il programma azzera la verifica precedente; ogni nuovo controllo parte dalla scena iniziale.
+- **Passo passo**: una vista separata mostra riga, azione, giri, controlli e stato del robot. Puoi riprodurre, fermare e tornare indietro senza modificare bozza o selezione. L'osservazione della traccia e la lettura della soluzione non assegnano il completamento.
+- **Equivoci da evitare**: scheda accessibile da Impara e Gioca. Spiega limite escluso del for, differenza fra azioni e giri, zero esecuzioni del while, primo giro obbligatorio del do while, sensori, negazione e cicli che non terminano.
+- **Interfaccia**: corridoio ingrandito, cursore a mano, tre temi (Notte, Giorno, Contrasto), codice e spiegazioni ingrandibili, F11, velocità da 0.5× a 3×, ridimensionamento proporzionale e firma in ogni schermata. La scena mostra le righe occupate da robot, traguardo e oggetti, conservando le coordinate originali; se il robot cambia riga, la vista si amplia.
+
+![Completa il numero richiesto](screenshots/07-completa-il-numero.png)
+
+![Confronta il risultato con la consegna](screenshots/11-risultato-da-correggere.png)
 
 | Ciclo | Missioni | Concetti |
 |---|---|---|
@@ -57,23 +63,27 @@ Il codice non viene passato a `eval`, `exec`, shell o runtime esterni. L'esecuzi
 
 Preferenze, progressi e bozze vengono salvati atomicamente in `progressi_cicli.json`, accanto all'eseguibile (o al sorgente). I progressi distinguono missione, difficoltà e linguaggio; i blocchi sono condivisi tra i linguaggi. Ogni livello con editor ha la propria bozza per linguaggio. Se si cambia linguaggio, una bozza già esistente viene conservata; in sua assenza si traduce il codice valido. Un tentativo incompleto resta disponibile tornando al linguaggio precedente.
 
-La modalità Impara non sovrascrive i tentativi del gioco. Le impostazioni conservano codice e posizione della simulazione. Per ricominciare un testo si usa il pulsante dedicato con conferma; Riparti ripristina solo la scena.
+La modalità Impara non sovrascrive i tentativi del gioco. Le impostazioni conservano codice e posizione della simulazione. Ricomincia sostituisce il testo soltanto dopo conferma; un nuovo controllo ripristina la scena senza cancellare il programma.
 
-F11 per schermo intero; Esc chiude le schede; Tab ed Invio navigano tra i pulsanti. Nell'editor Tab inserisce quattro spazi, Ctrl+A/C/X/V selezionano e usano gli appunti, Ctrl+Z/Y annullano e ripristinano. Le frecce muovono il cursore; Shift estende la selezione. La rotella scorre verticalmente, Shift+rotella orizzontalmente. Le spiegazioni supportano anche Home, End e Pagina su/giù.
+F11 per schermo intero; Esc chiude le schede; Tab ed Invio navigano tra i pulsanti. Nell'editor Invio va a capo e Ctrl+Invio controlla il programma. Tab inserisce quattro spazi, Ctrl+A/C/X/V selezionano e usano gli appunti, Ctrl+Z/Y annullano e ripristinano. Le frecce muovono il cursore; Shift estende la selezione. La rotella scorre verticalmente, Shift+rotella orizzontalmente, anche nella traccia. Le spiegazioni supportano anche Home, End e Pagina su/giù.
 
 ## Struttura e ricostruzione
 
 - `main.py`: navigazione, missioni, simulazione e interazioni.
+- `guidance.py`: consegne, previsioni, equivoci ed esempi nei quattro linguaggi.
+- `guided_ui.py`: pannelli di gioco e apprendimento, controlli e traccia separata.
 - `engine.py`: parser, rappresentazione dei cicli, generazione del codice e interprete con stato verificabile.
 - `missions.py`: nove missioni, soluzioni e suggerimenti.
 - `lessons.py`: testi originali delle spiegazioni.
 - `ui.py`: disegno vettoriale del robot, griglia, temi, editor.
 - `storage.py`: salvataggi validati.
 - `tests/test_robot_lab.py`: verifiche del motore, delle regole e delle interazioni.
+- `tests/test_guidance.py`: selezione e scrittura, verifica, previsioni, conservazione delle bozze e riproduzione senza premi.
 
 ```text
 python -m unittest discover -s tests -v
 python main.py --smoke-test smoke.json
+python main.py --smoke-test smoke.json --screenshots screenshots
 python -m pip install pyinstaller==6.20.0
 python build_release.py
 ```

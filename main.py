@@ -15,13 +15,15 @@ import pygame
 from engine import COMMANDS, LANGUAGES, CodeError, Interpreter, World, generate, parse
 from lessons import COMPARISON, HELP, LESSONS
 from missions import BY_KEY, CONDITIONS, DIFFICULTIES, LOOPS, MISSIONS
+from guidance import PREDICTIONS, first_gap, meaningful_code, writing_issue, writing_sections, misconceptions
+from guided_ui import GuidedUI
 import storage
 from ui import SIZE, THEMES, Editor, board, font, lines, mix, palette, panel, robot, text, wrap
 
 TITLE = 'Il laboratorio dei robot'
 
 
-class App:
+class App(GuidedUI):
     def __init__(self, screen, state_path=None, saving=True):
         self.screen = screen
         self.canvas = pygame.Surface(SIZE)
@@ -35,6 +37,11 @@ class App:
         self.filter = 'Tutti'
         self.mission = BY_KEY.get(self.state['mission'], MISSIONS[0])
         self.editor = Editor()
+        self.trace_editor = Editor()
+        self.trace_return = None
+        self.trace_only = False
+        self.verification = None
+        self.prediction_attempt = None
         self.block_data = dict(count=3, condition=CONDITIONS[0], actions=[])
         self.body_rect = pygame.Rect(808, 423, 568, 169)
         self.body_scroll = 0
@@ -96,6 +103,7 @@ class App:
 
     def invalidate(self):
         self.result = None
+        self.verification = None
         self.frame_index = 0
         self.playing = False
         self.elapsed = 0
@@ -118,6 +126,7 @@ class App:
         self.page = 'lab'
         self.editor.focus = False
         self.hint_level = self.body_scroll = 0
+        self.prediction_attempt = None
         self.block_data = copy.deepcopy(self.state['blocks'].get(key, dict(count=3, condition=CONDITIONS[0], actions=[])))
         if self.mode == 'learn':
             self.editor.set(self.mission.solution(self.language))
@@ -127,8 +136,6 @@ class App:
             self.editor.set(self.state['drafts'].get(self.draft_key(), self.mission.starter(self.language, self.difficulty)))
         self.invalidate()
         self.persist()
-        if self.mode == 'learn':
-            self.open_modal('guide')
 
     def set_language(self, language):
         if language == self.language:
@@ -206,9 +213,13 @@ class App:
 
     def button(self, key, label, rect, selected=False, accent=None, enabled=True, size=17):
         r = self.card(key, rect, accent, selected, enabled)
+        color = self.c['text'] if enabled or selected else self.c['muted']
+        if selected and accent == self.c['mint'] and enabled:
+            panel(self.canvas, r, mix(accent, self.c['text'], .12) if r.collidepoint(self.pointer) else accent, radius=12)
+            color = self.c['bg']
         while font(size, True).size(label)[0] > r.width - 16 and size > 12:
             size -= 1
-        text(self.canvas, label, r.center, size, self.c['text'] if enabled else self.c['muted'], True, 'center')
+        text(self.canvas, label, r.center, size, color, True, 'center')
 
     def header(self):
         c, s = self.c, self.canvas
@@ -294,108 +305,6 @@ class App:
     def initial_world(self):
         return World(*self.mission.start, batteries=set(self.mission.batteries), lamps=set(self.mission.lamps))
 
-    def lab(self):
-        s, c, m = self.canvas, self.c, self.mission
-        self.button('catalog', '← Missioni', (40, 112, 137, 41), size=16)
-        text(s, m.title, (194, 111), 34, c['text'], True)
-        self.button('guide', 'Spiegazione', (1052, 111, 163, 41), accent=c['accent'])
-        self.button('help', 'Comandi e codice', (1228, 111, 172, 41), size=15)
-        self.card('objective', (40, 170, 1360, 52), c['blue'])
-        text(s, f'{"IMPARA" if self.mode == "learn" else self.difficulty.upper()}  ·  CICLO {LOOPS[m.loop].upper()}', (56, 185), 14, c['accent'], True)
-        label = m.objective
-        while font(16).size(label)[0] > 1010 and len(label) > 1:
-            label = label[:-1]
-        if label != m.objective:
-            label = label.rstrip() + '…'
-        text(s, label, (340, 185), 16, c['text'])
-        text(s, '↗', (1381, 183), 22, c['blue'], anchor='topright')
-        frame = self.current_frame()
-        world = frame.world if frame else self.initial_world()
-        previous = self.result.frames[self.frame_index - 1].world if self.result and self.frame_index > 0 else None
-        board(s, pygame.Rect(40, 238, 720, 376), m, world, c, self.time, previous, self.motion, self.shake * 5)
-        text(s, '↗ direzione  ·  piattaforma verde = traguardo', (61, 591), 13, c['muted'])
-        panel(s, pygame.Rect(40, 628, 720, 159), c['panel'], c['border'])
-        text(s, frame.phase.upper() if frame else 'PRONTO ALLA MISSIONE', (59, 644), 13, c['danger'] if frame and frame.phase == 'Da rivedere' else c['mint'], True)
-        truth = '' if not frame or frame.truth is None else 'CONDIZIONE: VERA' if frame.truth else 'CONDIZIONE: FALSA'
-        text(s, truth, (740, 644), 13, c['mint'] if not frame or frame.truth else c['accent'], True, 'topright')
-        vars_label = f'Giri: {frame.iterations if frame else 0}    Controlli: {frame.checks if frame else 0}    Passi: {world.steps}    Batterie: {world.collected}'
-        text(s, vars_label, (59, 670), 17, c['text'], True)
-        user_vars = '   '.join(f'{k} = {v}' for k, v in (frame.variables.items() if frame else []) if k not in ('passi', 'raccolte', 'accese', 'scansioni'))
-        text(s, user_vars or f'Lampade accese: {len(world.lit)}    Scansioni: {world.scans}', (59, 697), 16, c['blue'])
-        message = frame.message if frame else ('Premi Esegui o Un passo per osservare il programma.' if self.mode == 'learn' else 'Costruisci il programma, poi premi Esegui. Puoi chiedere un suggerimento in qualsiasi momento.')
-        brief = lines(message, 492, 16)
-        text(s, brief[0] + ('…' if len(brief) > 1 else ''), (59, 744), 16, c['muted'])
-        self.button('feedback', 'Leggi tutto →', (571, 733, 169, 36), size=14, accent=c['blue'])
-        panel(s, pygame.Rect(783, 238, 617, 549), c['panel'], c['border'])
-        for i, lang in enumerate(LANGUAGES):
-            self.button('lang:' + lang, lang, (802 + i * 145, 252, 137, 35), self.language == lang, size=15)
-        if self.easy:
-            self.blocks()
-            text(s, 'IL CODICE DEI TUOI BLOCCHI', (808, 606), 12, c['muted'], True)
-            self.editor.draw(s, pygame.Rect(808, 628, 568, 141), c, frame.line if frame else 0, readonly=True, tick=self.time, size=16)
-        else:
-            text(s, 'OSSERVA IL CODICE' if self.mode == 'learn' else 'COMPLETA ???' if self.difficulty == 'Medio' else 'SCRIVI IL PROGRAMMA', (808, 306), 13, c['mint'], True)
-            if self.mode == 'game':
-                self.button('reset_code', 'Ricomincia il codice', (1180, 300, 196, 32), size=14)
-            self.editor.draw(s, pygame.Rect(808, 345, 568, 422), c, frame.line if frame else 0,
-                             self.result.error_line if self.result and self.frame_index == len(self.result.frames) - 1 else 0,
-                             self.mode == 'learn', self.time, self.state['size'])
-        self.button('run', 'Pausa' if self.playing else 'Continua' if self.result and self.frame_index < len(self.result.frames) - 1 else 'Esegui', (40, 805, 132, 44), selected=True, accent=c['mint'])
-        self.button('back', '← Indietro', (183, 805, 125, 44), enabled=bool(self.result and self.frame_index > 0), size=16)
-        self.button('step', 'Un passo →', (319, 805, 137, 44), enabled=not self.result or self.frame_index < len(self.result.frames) - 1, size=16)
-        self.button('restart', 'Riparti', (467, 805, 108, 44), size=16)
-        self.button('speed', f'{self.state["speed"]:g}×', (586, 805, 73, 44), size=16)
-        if self.mode == 'game':
-            self.button('hint', 'Suggerimento', (674, 805, 161, 44), accent=c['accent'], size=16)
-            for i, diff in enumerate(DIFFICULTIES):
-                self.button('diff:' + diff, diff, (970 + i * 146, 805, 138, 44), self.difficulty == diff, size=15)
-        else:
-            self.button('comparison', 'Confronta i cicli', (680, 805, 196, 44), accent=c['blue'], size=16)
-            self.button('try_game', 'Prova questa missione →', (1090, 805, 310, 44), accent=c['mint'], size=17)
-        if self.drag:
-            name = self.drag[1] if self.drag[0] == 'add' else self.block_data['actions'][self.drag[1]]
-            r = pygame.Rect(self.pointer[0] + 12, self.pointer[1] - 20, 211, 37)
-            panel(s, r, c['card'], c['mint'], 9)
-            text(s, COMMANDS[name], r.center, 15, c['text'], True, 'center')
-
-    def blocks(self):
-        c, s, m = self.c, self.canvas, self.mission
-        if m.loop == 'for':
-            text(s, 'RIPETI', (809, 306), 14, c['accent'], True)
-            self.button('count:-1', '−', (888, 296, 43, 36), enabled=self.block_data['count'] > 0, size=24)
-            text(s, self.block_data['count'], (966, 314), 23, c['text'], True, 'center')
-            self.button('count:1', '+', (1003, 296, 43, 36), enabled=self.block_data['count'] < 20, size=24)
-            text(s, 'VOLTE', (1062, 307), 14, c['muted'], True)
-        else:
-            text(s, 'MENTRE' if m.loop == 'while' else 'RIPETI DOPO SE', (809, 307), 13, c['accent'], True)
-            from engine import format_expr
-            self.button('condition', format_expr(self.block_data['condition'], self.language) + ' ▾', (948, 296, 428, 36), size=16)
-        for i, (name, label) in enumerate(COMMANDS.items()):
-            self.button('add:' + name, '+ ' + label, (808 + (i % 3) * 191, 345 + (i // 3) * 37, 183, 31), enabled=len(self.block_data['actions']) < 12, size=13)
-        panel(s, self.body_rect, c['bg'], c['mint'] if self.drag and self.body_rect.collidepoint(self.pointer) else c['border'], 10)
-        actions = self.block_data['actions']
-        active_block = -1
-        frame = self.current_frame()
-        if frame and frame.phase == 'Azione':
-            nodes = parse(self.editor.value, self.language)
-            if nodes:
-                active_block = next((i for i, node in enumerate(nodes[0].body) if node.line == frame.line), -1)
-        self.body_scroll = min(self.body_scroll, max(0, len(actions) - 4))
-        if not actions:
-            wrap(s, 'Trascina qui i comandi, oppure cliccali per aggiungerli. Questo è il corpo che verrà ripetuto.', self.body_rect.inflate(-38, -40), 18, c['muted'])
-        for i in range(self.body_scroll, min(len(actions), self.body_scroll + 4)):
-            y = 432 + (i - self.body_scroll) * 38
-            self.button('body:' + str(i), f'{i + 1}.  {COMMANDS[actions[i]]}', (819, y, 391, 32), selected=i == active_block, accent=c['mint'], size=15)
-            self.button('up:' + str(i), '↑', (1218, y, 42, 32), enabled=i > 0, size=18)
-            self.button('down:' + str(i), '↓', (1267, y, 42, 32), enabled=i < len(actions) - 1, size=18)
-            self.button('remove:' + str(i), '×', (1316, y, 45, 32), size=20)
-        if self.drag and self.body_rect.collidepoint(self.pointer):
-            row = min(4, max(0, int((self.pointer[1] - 430 + 19) // 38)))
-            y = min(585, 430 + row * 38)
-            pygame.draw.line(s, c['mint'], (821, y), (1360, y), 3)
-        if len(actions) > 4:
-            text(s, f'{self.body_scroll + 1}–{min(len(actions), self.body_scroll + 4)} / {len(actions)} · rotella per scorrere', (1374, 605), 11, c['muted'], anchor='topright')
-
     def settings(self):
         s, c = self.canvas, self.c
         text(s, 'Il laboratorio, come piace a te.', (48, 121), 38, c['text'], True)
@@ -415,6 +324,12 @@ class App:
 
     def modal_content(self):
         m = self.mission
+        if self.modal == 'writing':
+            return 'Cosa fare con i blocchi' if self.easy else 'Cosa devo scrivere?', writing_sections(m, self.language, self.editor.value, self.easy)
+        if self.modal == 'misconceptions':
+            return 'Equivoci sui cicli', misconceptions(m)
+        if self.modal == 'code':
+            return 'Il codice da osservare', [('Il programma · ' + self.language, self.editor.value)]
         if self.modal == 'condition':
             return 'Scegli quando ripetere', []
         if self.modal == 'reset':
@@ -446,11 +361,14 @@ class App:
         if self.modal_tab == 'Confronto':
             return 'Tre cicli, tre modi di ripetere', COMPARISON
         if self.modal_tab == 'La missione':
-            return 'Dall’idea al robot', [('Il tuo obiettivo', m.objective), ('Il ragionamento', m.concept), ('Il programma · ' + self.language, m.solution(self.language)), ('Mentre osservi', 'Segui la riga illuminata e leggi il riquadro sotto la griglia. Distingui una ripetizione completa da una singola azione. Il pulsante Un passo mostra anche i controlli: il robot si muove solo quando viene eseguito avanza().')]
+            return 'Dall’idea al robot', [('Il tuo obiettivo', m.objective), ('Il ragionamento', m.concept), ('Il programma · ' + self.language, m.solution(self.language)), ('Mentre osservi', 'Segui la riga illuminata e leggi il riquadro sotto la griglia. Distingui una ripetizione completa da una singola azione. Il pulsante Un passaggio mostra anche i controlli: il robot si muove solo quando viene eseguito avanza().')]
         lesson = LESSONS[m.loop]
         return LOOPS[m.loop] + ' · ' + lesson['title'], [('Inizia da qui', lesson['intro'])] + list(lesson['sections'])
 
     def draw_modal(self):
+        if self.modal == 'trace':
+            self.draw_trace()
+            return
         overlay = pygame.Surface(SIZE, pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 175))
         self.canvas.blit(overlay, (0, 0))
@@ -478,7 +396,7 @@ class App:
             for heading, value in sections:
                 layout.append((total, heading, True, False, 23))
                 total += 38
-                code = heading in ('Il programma · ' + self.language, 'Una possibile soluzione · ' + self.language)
+                code = heading in ('Il programma · ' + self.language, 'Una possibile soluzione · ' + self.language, 'Esempio di forma · ' + self.language)
                 row_size = size
                 if code:
                     while row_size > 14 and any(font(row_size, mono=True).size(row)[0] > viewport.width - 12 for row in value.splitlines()):
@@ -549,6 +467,12 @@ class App:
         self.editor.focus = False
         self.persist()
         self.result = Interpreter(self.mission, self.language).run(self.editor.value)
+        self.trace_only = self.modal == 'trace'
+        issue = writing_issue(self.mission, self.editor.value, self.language, self.easy) if self.mode == 'game' else ''
+        if self.easy and not self.block_data['actions']:
+            issue = 'Il corpo è vuoto. Aggiungi almeno un comando con i pulsanti +, poi controlla di nuovo i blocchi.'
+        if issue:
+            self.result.message = self.result.frames[-1].message = issue
         self.frame_index = 0
         self.playing = playing
         self.elapsed = 0
@@ -562,8 +486,34 @@ class App:
     def follow_line(self):
         frame = self.current_frame()
         if frame:
-            self.editor.scroll = max(0, frame.line - 3)
-            self.editor.xscroll = 0
+            editor = self.trace_editor if self.modal == 'trace' else self.editor
+            editor.scroll = max(0, frame.line - 3)
+            editor.xscroll = 0
+
+    def verify_program(self):
+        self.run_program(False)
+        self.verification = self.result
+        self.frame_index = len(self.result.frames) - 1
+        self.motion = 1
+        if self.result.success:
+            key = self.draft_key()
+            if key not in self.state['completed']:
+                self.state['completed'].append(key)
+                self.persist()
+
+    def focus_code(self):
+        gap = first_gap(self.editor.value, self.language)
+        self.playing = False
+        self.editor.focus = True
+        if gap:
+            self.editor.anchor, self.editor.caret = gap.start, gap.end
+        else:
+            self.editor.anchor = self.editor.caret = len(self.editor.value)
+            if self.editor.value and not meaningful_code(self.editor.value) and not self.editor.value.endswith('\n'):
+                self.editor.replace('\n')
+                self.invalidate()
+        self.editor.reveal()
+        pygame.key.start_text_input()
 
     def advance(self):
         if not self.result or self.frame_index >= len(self.result.frames) - 1:
@@ -573,19 +523,42 @@ class App:
         self.follow_line()
         if self.frame_index == len(self.result.frames) - 1:
             self.playing = False
-            if self.result.success and self.mode == 'game':
+            if self.result.success and self.mode == 'game' and not self.trace_only:
                 key = self.draft_key()
                 if key not in self.state['completed']:
                     self.state['completed'].append(key)
                     self.persist()
-                self.open_modal('success')
+                self.verification = self.result
             elif not self.result.success:
                 self.shake = 1
 
     def action(self, key):
         if key == 'close':
+            if self.modal == 'trace':
+                self.result, self.frame_index, self.motion = self.trace_return
+                self.trace_return = None
+                self.trace_only = False
+                self.playing = False
             self.modal = None
             self.key_focus = None
+        elif key == 'focus_code':
+            self.focus_code()
+        elif key == 'verify':
+            self.verify_program()
+        elif key == 'trace':
+            self.trace_return = (self.result, self.frame_index, self.motion)
+            self.trace_editor.set(self.editor.value)
+            self.open_modal('trace')
+            self.run_program(False)
+            self.trace_only = True
+        elif key.startswith('predict:'):
+            self.prediction_attempt = int(key.split(':')[1])
+            self.invalidate()
+        elif key == 'learn_start':
+            if self.prediction_attempt == PREDICTIONS[self.mission.key].correct:
+                self.run_program(True)
+        elif key in ('writing', 'misconceptions', 'code'):
+            self.open_modal(key)
         elif key.startswith('scroll:'):
             self.modal_scroll = max(0, min(self.modal_max, self.modal_scroll + int(key.split(':')[1])))
         elif key.startswith('tab:'):
@@ -736,7 +709,7 @@ class App:
             if self.drag:
                 if self.body_rect.collidepoint(self.pointer):
                     actions = self.block_data['actions']
-                    index = min(len(actions), max(0, int((self.pointer[1] - 430 + 19) // 38)) + self.body_scroll)
+                    index = min(len(actions), max(0, int((self.pointer[1] - self.body_rect.y - 8 + 19) // 38)) + self.body_scroll)
                     kind, value = self.drag
                     if kind == 'move':
                         name = actions.pop(value)
@@ -752,7 +725,12 @@ class App:
                     self.action(self.pressed)
             self.pressed = None
         if event.type == pygame.MOUSEWHEEL:
-            if self.modal:
+            if self.modal == 'trace' and self.trace_editor.rect.collidepoint(self.pointer):
+                if pygame.key.get_mods() & pygame.KMOD_SHIFT:
+                    self.trace_editor.xscroll = max(0, self.trace_editor.xscroll - event.y * 4)
+                else:
+                    self.trace_editor.scroll = max(0, self.trace_editor.scroll - event.y * 3)
+            elif self.modal:
                 self.modal_scroll = max(0, min(self.modal_max, self.modal_scroll - event.y * 70))
             elif self.page == 'lab':
                 if self.easy and self.body_rect.collidepoint(self.pointer):
@@ -770,7 +748,7 @@ class App:
                 self.action('fullscreen')
             elif event.key == pygame.K_ESCAPE:
                 if self.modal:
-                    self.modal = None
+                    self.action('close')
                 elif self.page == 'settings':
                     self.navigate(self.return_page)
                 elif self.editor.focus:
@@ -780,6 +758,13 @@ class App:
                     self.navigate('catalog')
                 else:
                     self.navigate('welcome')
+            elif not self.modal and self.page == 'lab' and self.mode == 'game' and event.key == pygame.K_RETURN and event.mod & pygame.KMOD_CTRL:
+                self.verify_program()
+            elif self.modal == 'trace' and event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+                if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                    self.trace_editor.xscroll = max(0, self.trace_editor.xscroll + (-4 if event.key == pygame.K_LEFT else 4))
+                else:
+                    self.trace_editor.scroll = max(0, self.trace_editor.scroll + (-3 if event.key == pygame.K_UP else 3))
             elif self.modal and event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_PAGEUP, pygame.K_PAGEDOWN, pygame.K_HOME, pygame.K_END):
                 change = {pygame.K_UP: -50, pygame.K_DOWN: 50, pygame.K_PAGEUP: -380, pygame.K_PAGEDOWN: 380, pygame.K_HOME: -100000, pygame.K_END: 100000}[event.key]
                 self.modal_scroll = max(0, min(self.modal_max, self.modal_scroll + change))
@@ -795,11 +780,12 @@ class App:
                 if any(key == self.key_focus and enabled for key, _, enabled in self.buttons):
                     self.action(self.key_focus)
             elif event.key == pygame.K_SPACE and self.page == 'lab' and not self.modal:
-                self.action('run')
+                if self.mode == 'learn' and self.prediction_attempt == PREDICTIONS[self.mission.key].correct:
+                    self.action('run')
 
     def update(self, dt):
         self.time += dt
-        if not self.modal and self.page == 'lab':
+        if (not self.modal or self.modal == 'trace') and self.page == 'lab':
             self.motion = min(1, self.motion + dt * 4 * self.state['speed'])
             self.shake = max(0, self.shake - dt * 1.7)
             if self.playing:
@@ -811,7 +797,7 @@ class App:
             self.persist()
 
 
-def smoke(report):
+def smoke(report, screenshots=None):
     screen = pygame.display.set_mode(SIZE)
     app = App(screen, saving=False)
     count = 0
@@ -828,6 +814,7 @@ def smoke(report):
                 app.open_mission(mission.key)
                 app.draw()
                 app.modal = None
+                app.prediction_attempt = PREDICTIONS[mission.key].correct
                 app.run_program(False)
                 assert app.result.success, (lang, mission.key, app.result.message)
                 app.frame_index = len(app.result.frames) - 1
@@ -838,12 +825,68 @@ def smoke(report):
                     app.state['difficulty'] = difficulty
                     app.open_mission(mission.key)
                     app.draw()
-        for kind in ('guide', 'help', 'hint', 'objective', 'feedback', 'condition', 'reset'):
+        for kind in ('guide', 'help', 'hint', 'objective', 'feedback', 'condition', 'reset', 'writing', 'misconceptions'):
             app.open_modal(kind)
             app.draw()
             app.modal_scroll = app.modal_max
             app.draw()
             app.modal = None
+    if screenshots:
+        folder = Path(screenshots)
+        folder.mkdir(parents=True, exist_ok=True)
+        app = App(screen, saving=False)
+        app.state = storage.defaults()
+        app.c = palette('Notte')
+        def capture(name):
+            app.pointer = (-100, -100)
+            app.draw()
+            pygame.image.save(app.canvas, folder / name)
+        capture('01-home.png')
+        app.navigate('catalog')
+        capture('02-missioni.png')
+        app.open_mission('for_batterie')
+        capture('03-prevedi-i-giri.png')
+        app.action('predict:0')
+        capture('04-giri-diversi-dalle-azioni.png')
+        app.open_mission('while_zero')
+        app.action('predict:0')
+        app.action('learn_start')
+        while app.frame_index < len(app.result.frames) - 1:
+            app.advance()
+        capture('05-zero-passi-corretto.png')
+        app.mode = 'game'
+        app.state['difficulty'] = 'Facile'
+        app.open_mission('for_batterie')
+        app.action('add:avanza')
+        app.action('add:raccogli')
+        capture('06-costruisci-i-blocchi.png')
+        app.set_difficulty('Medio')
+        app.action('focus_code')
+        capture('07-completa-il-numero.png')
+        app.open_mission('do_segnale')
+        app.action('focus_code')
+        capture('08-completa-il-comando.png')
+        app.set_difficulty('Difficile')
+        capture('09-scrivi-qui.png')
+        app.action('writing')
+        app.modal_scroll = 250
+        capture('10-guida-do-while-python.png')
+        app.action('close')
+        app.open_mission('for_pontile')
+        app.editor.set('for i in range(4):\n    avanza()')
+        app.action('verify')
+        capture('11-risultato-da-correggere.png')
+        app.action('trace')
+        app.action('step')
+        app.action('step')
+        capture('12-esecuzione-passo-passo.png')
+        app.action('close')
+        app.action('misconceptions')
+        capture('13-equivoci-da-evitare.png')
+        app.action('close')
+        app.editor.set(app.mission.solution(app.language))
+        app.action('verify')
+        capture('14-missione-completata.png')
     Path(report).write_text(json.dumps(dict(ok=True, solution_checks=count, languages=list(LANGUAGES), missions=len(MISSIONS), themes=len(THEMES))), encoding='utf-8')
 
 
@@ -852,7 +895,7 @@ def main():
     pygame.display.set_caption(TITLE)
     pygame.key.set_repeat(450, 35)
     if '--smoke-test' in sys.argv:
-        smoke(sys.argv[sys.argv.index('--smoke-test') + 1])
+        smoke(sys.argv[sys.argv.index('--smoke-test') + 1], sys.argv[sys.argv.index('--screenshots') + 1] if '--screenshots' in sys.argv else None)
         pygame.quit()
         return
     screen = pygame.display.set_mode((1280, 800), pygame.RESIZABLE)

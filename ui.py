@@ -1,5 +1,7 @@
 """Resolution-independent interface, robot drawings and a small code editor."""
 import math
+import os
+from pathlib import Path
 from functools import lru_cache
 import pygame
 
@@ -17,6 +19,10 @@ def palette(theme):
 
 @lru_cache(maxsize=100)
 def font(size, bold=False, mono=False):
+    name = ('consolab.ttf' if bold else 'consola.ttf') if mono else ('segoeuib.ttf' if bold else 'segoeui.ttf')
+    path = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts' / name
+    if path.is_file():
+        return pygame.font.Font(str(path), size)
     return pygame.font.SysFont('consolas' if mono else 'segoeui', size, bold=bold)
 
 
@@ -97,14 +103,19 @@ def robot(surface, center, scale, direction=0, tick=0, shake=0):
     pygame.draw.polygon(surface, '#ffd078', [tip, (base[0] - dy * 5 * scale, base[1] + dx * 5 * scale), (base[0] + dy * 5 * scale, base[1] - dx * 5 * scale)])
 
 
-def board(surface, rect, mission, world, colors, tick=0, previous=None, progress=1, shake=0):
+def board(surface, rect, mission, world, colors, tick=0, previous=None, progress=1, shake=0, focus=False):
     panel(surface, rect, colors['panel'], colors['border'], 20)
-    cell = min((rect.width - 64) / mission.width, (rect.height - 56) / mission.height)
+    occupied = [mission.start[1], mission.goal[1], world.y] + [y for _, y in (*mission.walls, *mission.batteries, *mission.lamps)]
+    if previous:
+        occupied.append(previous.y)
+    first, last = (min(occupied), max(occupied)) if focus else (0, mission.height - 1)
+    visible_rows = last - first + 1
+    cell = min((rect.width - 64) / mission.width, (rect.height - 56) / visible_rows)
     ox = rect.centerx - cell * mission.width / 2
-    oy = rect.centery - cell * mission.height / 2 + 4
-    for y in range(mission.height):
+    oy = rect.centery - cell * visible_rows / 2 + 4
+    for y in range(first, last + 1):
         for x in range(mission.width):
-            r = pygame.Rect(round(ox + x * cell + 3), round(oy + y * cell + 3), round(cell - 6), round(cell - 6))
+            r = pygame.Rect(round(ox + x * cell + 3), round(oy + (y - first) * cell + 3), round(cell - 6), round(cell - 6))
             fill = colors['card'] if (x + y) % 2 == 0 else mix(colors['panel'], colors['card'], .5)
             if (x, y) == mission.goal:
                 fill = mix(colors['panel'], colors['mint'], .28)
@@ -130,15 +141,15 @@ def board(surface, rect, mission, world, colors, tick=0, previous=None, progress
                 pygame.draw.line(surface, '#819aad', (r.centerx, r.centery + 7), (r.centerx, r.centery + 17), 5)
     for x in range(mission.width):
         text(surface, x + 1, (ox + (x + .5) * cell, oy - 15), 12, colors['muted'], anchor='center')
-    for y in range(mission.height):
-        text(surface, y + 1, (ox - 12, oy + (y + .5) * cell), 12, colors['muted'], anchor='center')
+    for y in range(first, last + 1):
+        text(surface, y + 1, (ox - 12, oy + (y - first + .5) * cell), 12, colors['muted'], anchor='center')
     rx, ry = world.x, world.y
     if previous and abs(previous.x - rx) + abs(previous.y - ry) == 1:
         t = max(0, min(1, progress))
         t = t * t * (3 - 2 * t)
         rx = previous.x * (1 - t) + rx * t
         ry = previous.y * (1 - t) + ry * t
-    robot(surface, (ox + (rx + .5) * cell, oy + (ry + .5) * cell + cell * .1), cell / 86, world.direction, tick, shake)
+    robot(surface, (ox + (rx + .5) * cell, oy + (ry - first + .5) * cell + cell * .1), cell / 86, world.direction, tick, shake)
     if mission.required_scans:
         pos = (rect.right - 26, rect.top + 25)
         for radius in (6, 12, 18):
@@ -147,7 +158,7 @@ def board(surface, rect, mission, world, colors, tick=0, previous=None, progress
             for offset in (0, .5):
                 pulse = (tick * .65 + offset) % 1
                 color = mix(colors['panel'], colors['mint'] if world.scans >= mission.signal_after else colors['blue'], 1 - pulse)
-                pygame.draw.circle(surface, color, (round(ox + (rx + .5) * cell), round(oy + (ry + .5) * cell)), round(cell * (.5 + pulse * .7)), 2)
+                pygame.draw.circle(surface, color, (round(ox + (rx + .5) * cell), round(oy + (ry - first + .5) * cell)), round(cell * (.5 + pulse * .7)), 2)
 
 
 class Editor:
@@ -304,6 +315,11 @@ class Editor:
                     pygame.draw.rect(surface, mix(colors['bg'], colors['blue'], .4), (rect.x + 47 + (start - self.xscroll) * cw, y, (end - start) * cw, lh))
                 code_clip = surface.get_clip()
                 surface.set_clip(pygame.Rect(rect.x + 44, rect.y + 4, rect.width - 48, rect.height - 8).clip(code_clip))
+                if not line.lstrip().startswith(('#', '//')):
+                    start = line.find('???')
+                    while start >= 0:
+                        pygame.draw.rect(surface, mix(colors['bg'], colors['accent'], .3), (rect.x + 47 + (start - self.xscroll) * cw, y, 3 * cw, lh))
+                        start = line.find('???', start + 3)
                 color = colors['muted'] if line.lstrip().startswith(('#', '//')) else colors['accent'] if line.lstrip().startswith(('for ', 'while ', 'do ', 'if ', 'break', '} while')) else colors['text']
                 text(surface, line, (rect.x + 47 - self.xscroll * cw, y), size, color, mono=True)
                 if self.focus and not readonly and offset <= self.caret <= offset + len(line) and int(tick * 2) % 2 == 0:
