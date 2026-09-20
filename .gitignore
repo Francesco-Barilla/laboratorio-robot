@@ -26,3 +26,6 @@ Thumbs.db
 /dist/*
 !/dist/LaboratorioRobot-Windows.zip
 !/dist/LaboratorioRobot-Sorgenti.zip
+
+# Local student exports are not part of the public source release.
+report/

@@ -14,10 +14,12 @@ import pygame
 
 from engine import COMMANDS, LANGUAGES, CodeError, Interpreter, World, generate, parse
 from lessons import COMPARISON, HELP, LESSONS
+from native_context import native_sections
 from missions import BY_KEY, CONDITIONS, DIFFICULTIES, LOOPS, MISSIONS
 from guidance import PREDICTIONS, first_gap, meaningful_code, writing_issue, writing_sections, misconceptions
 from guided_ui import GuidedUI
 import storage
+import classroom
 from ui import SIZE, THEMES, Editor, board, font, lines, mix, palette, panel, robot, text, wrap
 
 TITLE = 'Il laboratorio dei robot'
@@ -340,7 +342,7 @@ class App(GuidedUI):
             frame = self.current_frame()
             return 'Missione compiuta!', [('Obiettivo raggiunto', m.objective), ('Hai usato il ciclo giusto', f'Hai completato la missione con {LOOPS[m.loop]}, in {self.language}, al livello {self.difficulty}.'), ('Il lavoro del robot', f'Ripetizioni: {frame.iterations}. Controlli: {frame.checks}. Passi: {frame.world.steps}. Batterie raccolte: {frame.world.collected}.'), ('Porta con te questa idea', m.concept)]
         if self.modal == 'help':
-            return 'Comandi e codice', HELP
+            return 'Comandi e codice', native_sections(m, self.language) + list(HELP)
         if self.modal == 'objective':
             return m.title, [('Obiettivo', m.objective), ('Ciclo richiesto', LOOPS[m.loop] + ': le azioni del robot devono essere nel corpo del ciclo, che deve essere effettivamente raggiunto.'), ('Che cosa impari', m.concept), ('Come affrontare la missione', 'Osserva la posizione iniziale, la freccia di direzione, gli oggetti e la piattaforma verde. Prima di eseguire, prova a prevedere quante ripetizioni serviranno. Puoi leggere le coordinate sopra e a sinistra della griglia.')]
         if self.modal in ('feedback', 'hint'):
@@ -361,11 +363,14 @@ class App(GuidedUI):
         if self.modal_tab == 'Confronto':
             return 'Tre cicli, tre modi di ripetere', COMPARISON
         if self.modal_tab == 'La missione':
-            return 'Dall’idea al robot', [('Il tuo obiettivo', m.objective), ('Il ragionamento', m.concept), ('Il programma · ' + self.language, m.solution(self.language)), ('Mentre osservi', 'Segui la riga illuminata e leggi il riquadro sotto la griglia. Distingui una ripetizione completa da una singola azione. Il pulsante Un passaggio mostra anche i controlli: il robot si muove solo quando viene eseguito avanza().')]
+            return 'Dall’idea al robot', [('Il tuo obiettivo', m.objective), ('Il ragionamento', m.concept), ('Il programma · ' + self.language, m.solution(self.language)), ('Mentre osservi', 'Segui la riga illuminata e leggi il riquadro sotto la griglia. Distingui una ripetizione completa da una singola azione. Il pulsante Un passaggio mostra anche i controlli: il robot si muove solo quando viene eseguito il messaggio avanza.')]
         lesson = LESSONS[m.loop]
         return LOOPS[m.loop] + ' · ' + lesson['title'], [('Inizia da qui', lesson['intro'])] + list(lesson['sections'])
 
     def draw_modal(self):
+        if self.modal == 'classroom':
+            classroom.draw_report(self)
+            return
         if self.modal == 'trace':
             self.draw_trace()
             return
@@ -396,7 +401,7 @@ class App(GuidedUI):
             for heading, value in sections:
                 layout.append((total, heading, True, False, 23))
                 total += 38
-                code = heading in ('Il programma · ' + self.language, 'Una possibile soluzione · ' + self.language, 'Esempio di forma · ' + self.language)
+                code = heading in ('Il programma · ' + self.language, 'Una possibile soluzione · ' + self.language, 'Esempio di forma · ' + self.language, 'Il programma completo · ' + self.language, 'Lettura esplicita · ' + self.language, 'Messaggi riconosciuti')
                 row_size = size
                 if code:
                     while row_size > 14 and any(font(row_size, mono=True).size(row)[0] > viewport.width - 12 for row in value.splitlines()):
@@ -441,11 +446,9 @@ class App(GuidedUI):
         self.buttons = []
         self.header()
         {'welcome': self.welcome, 'catalog': self.catalog, 'lab': self.lab, 'settings': self.settings}[self.page]()
-        if self.notice and not self.modal:
-            self.button('notice', 'Informazione sul salvataggio o sulla bozza', (466, 857, 508, 25), accent=c['danger'], size=12)
+        classroom.draw_status(self)
         if self.modal:
             self.draw_modal()
-        text(s, 'Realizzato dal Prof. Barillà Francesco', (720, 889), 13, c['muted'], anchor='center')
         w, h = self.screen.get_size()
         scale = min(w / SIZE[0], h / SIZE[1])
         target = (round(SIZE[0] * scale), round(SIZE[1] * scale))
@@ -493,6 +496,7 @@ class App(GuidedUI):
     def verify_program(self):
         self.run_program(False)
         self.verification = self.result
+        classroom.track(self, 'Programma', self.result.success, self.editor.value, mode='Gioca')
         self.frame_index = len(self.result.frames) - 1
         self.motion = 1
         if self.result.success:
@@ -533,6 +537,8 @@ class App(GuidedUI):
                 self.shake = 1
 
     def action(self, key):
+        if classroom.action(self, key):
+            return
         if key == 'close':
             if self.modal == 'trace':
                 self.result, self.frame_index, self.motion = self.trace_return
@@ -553,11 +559,14 @@ class App(GuidedUI):
             self.trace_only = True
         elif key.startswith('predict:'):
             self.prediction_attempt = int(key.split(':')[1])
+            classroom.track(self, 'Previsione', self.prediction_attempt == PREDICTIONS[self.mission.key].correct, self.prediction_attempt, mode='Impara')
             self.invalidate()
         elif key == 'learn_start':
             if self.prediction_attempt == PREDICTIONS[self.mission.key].correct:
                 self.run_program(True)
         elif key in ('writing', 'misconceptions', 'code'):
+            if key != 'code':
+                classroom.aid(self, 'guida alla scrittura' if key == 'writing' else 'equivoci')
             self.open_modal(key)
         elif key.startswith('scroll:'):
             self.modal_scroll = max(0, min(self.modal_max, self.modal_scroll + int(key.split(':')[1])))
@@ -570,6 +579,7 @@ class App(GuidedUI):
             self.sync_blocks()
         elif key == 'more_hint':
             self.hint_level = min(4, self.hint_level + 1)
+            classroom.aid(self, 'soluzione' if self.hint_level == 4 else f'suggerimento {self.hint_level}')
             self.modal_scroll = 0
         elif key == 'confirm_reset':
             self.editor.set(self.mission.starter(self.language, self.difficulty))
@@ -592,6 +602,7 @@ class App(GuidedUI):
             self.open_modal('reset')
         elif key == 'hint':
             self.hint_level = max(1, self.hint_level)
+            classroom.aid(self, 'soluzione' if self.hint_level == 4 else f'suggerimento {self.hint_level}')
             self.open_modal('hint')
         elif key == 'settings':
             if self.page != 'settings':
@@ -680,6 +691,8 @@ class App(GuidedUI):
             self.sync_blocks()
 
     def event(self, event):
+        if classroom.event(self, event):
+            return
         if event.type == pygame.QUIT:
             self.persist()
             self.alive = False
@@ -873,7 +886,7 @@ def smoke(report, screenshots=None):
         capture('10-guida-do-while-python.png')
         app.action('close')
         app.open_mission('for_pontile')
-        app.editor.set('for i in range(4):\n    avanza()')
+        app.editor.set('for i in range(4):\n    print("avanza")')
         app.action('verify')
         capture('11-risultato-da-correggere.png')
         app.action('trace')
@@ -887,7 +900,9 @@ def smoke(report, screenshots=None):
         app.editor.set(app.mission.solution(app.language))
         app.action('verify')
         capture('14-missione-completata.png')
-    Path(report).write_text(json.dumps(dict(ok=True, solution_checks=count, languages=list(LANGUAGES), missions=len(MISSIONS), themes=len(THEMES))), encoding='utf-8')
+    from release_checks import check_classroom
+    check_classroom(app, report, screenshots)
+    Path(report).write_text(json.dumps(dict(ok=True, classroom_report=True, solution_checks=count, languages=list(LANGUAGES), missions=len(MISSIONS), themes=len(THEMES))), encoding='utf-8')
 
 
 def main():

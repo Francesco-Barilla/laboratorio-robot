@@ -43,3 +43,22 @@ Bozze, scelte e progressi sono salvati in progressi_cicli.json.
 Il salvataggio appartiene a questa copia locale dell'app, senza account.
 
 Dettagli tecnici, limiti e istruzioni per ricostruire: README.md.
+
+Le vecchie bozze con funzioni del gioco vengono conservate: il controllo spiega come correggerle usando output e input standard.
+
+
+PROGRESSI E REPORT PER IL DOCENTE
+Il pulsante Progressi e report è sempre in basso. Mostra missioni Gioca
+completate, risposte corrette, errori e percentuale di errore:
+errori / risposte effettivamente controllate x 100. Senza risposte compare —.
+Impara, Gioca e Quiz sono distinti. Ogni verifica del programma conta come
+un tentativo, non come un tentativo per ciascun caso automatico.
+Ripetere lo stesso controllo senza cambiare risposta non aggiunge tentativi;
+una risposta modificata viene contata. Rivedere una traccia non conta.
+Sono visibili anche aiuti e soluzioni consultati. I vecchi completamenti
+restano; non vengono inventati tentativi o errori antecedenti all'aggiornamento.
+Inserisci facoltativamente un nome/codice: identifica l'intero storico di
+questa copia. Esporta report CSV crea un file nella cartella report accanto
+ai progressi, con tutti i linguaggi/livelli e dettaglio delle attività.
+Il registro è locale e modificabile, non sincronizzato né una prova
+antimanomissione. Per il controllo in classe, raccogli i CSV degli studenti.

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import ast
 import copy
 import re
+from native_io import output_message, output_statement
 
 LANGUAGES = ('Python', 'JavaScript', 'C', 'Java')
 COMMANDS = {'avanza': 'Avanza', 'sinistra': 'Gira a sinistra', 'destra': 'Gira a destra',
@@ -34,6 +35,7 @@ class Node:
     step: str = '1'
     endline: int = 1
     scoped: bool = True
+    declares: bool = False
 
 
 def expression(value):
@@ -58,14 +60,14 @@ def expr_tree(value, line=1):
             raise CodeError('Qui sono disponibili interi, sensori, +, -, *, confronti e condizioni logiche.', line)
         if isinstance(item, ast.Constant) and (type(item.value) not in (int, bool) or abs(item.value) > 10000):
             raise CodeError('Usa numeri interi tra -10000 e 10000 oppure valori vero/falso.', line)
-        if isinstance(item, ast.Call) and (not isinstance(item.func, ast.Name) or item.func.id not in SENSORS or item.args or item.keywords):
-            raise CodeError('Nella condizione usa un sensore senza argomenti: strada_libera(), sulla_batteria(), sul_traguardo() o segnale_trovato().', line)
+        if isinstance(item, ast.Call):
+            raise CodeError('Leggi prima il sensore in una variabile con input (o prompt, scanf, nextLine), poi confrontala con 0. Le vecchie funzioni sensore non esistono.', line)
     return tree
 
 
 def check_name(name, line):
-    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,23}', name) or name in READONLY or name in COMMANDS or name in SENSORS:
-        raise CodeError('Scegli un nome di variabile come i o contatore. I contatori del robot sono di sola lettura.', line)
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,23}', name) or name in COMMANDS:
+        raise CodeError('Scegli un nome di variabile come i o contatore.', line)
 
 
 def negate(value):
@@ -77,10 +79,15 @@ def python_nodes(items):
     out = []
     for item in items:
         line = item.lineno
-        if isinstance(item, ast.Expr) and isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name) and not item.value.args and not item.value.keywords:
-            out.append(Node('command', line, name=item.value.func.id))
+        if isinstance(item, ast.Expr) and isinstance(item.value, ast.Call):
+            try:
+                message = output_message(ast.unparse(item.value), 'Python')
+            except ValueError as err:
+                raise CodeError(str(err), line) from None
+            out.append(Node('command', line, name=message))
         elif isinstance(item, ast.Assign) and len(item.targets) == 1 and isinstance(item.targets[0], ast.Name):
-            out.append(Node('assign', line, ast.unparse(item.value), item.targets[0].id))
+            value = ast.unparse(item.value)
+            out.append(Node('read' if value == 'int(input())' else 'assign', line, value, item.targets[0].id))
         elif isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name) and isinstance(item.op, (ast.Add, ast.Sub)):
             op = '+' if isinstance(item.op, ast.Add) else '-'
             out.append(Node('assign', line, f'{item.target.id} {op} ({ast.unparse(item.value)})', item.target.id))
@@ -115,10 +122,14 @@ def python_nodes(items):
 
 
 class BraceParser:
-    def __init__(self, source):
-        source = re.sub(r'/\*.*?\*/', lambda m: '\n' * m[0].count('\n'), source, flags=re.S)
-        source = re.sub(r'//[^\n]*', '', source)
-        self.tokens = [(m[0], source.count('\n', 0, m.start()) + 1) for m in re.finditer(r'\+\+|--|\+=|-=|<=|>=|==|!=|&&|\|\||[A-Za-z_]\w*|\d+|[^\s]', source)]
+    def __init__(self, source, language):
+        self.language = language
+        # Consume quoted literals before comments, keeping contents and line numbers.
+        source = re.sub(
+            r'"(?:\\.|[^"\\])*"|\x27(?:\\.|[^\x27\\])*\x27|/\*.*?\*/|//[^\n]*',
+            lambda m: re.sub(r'[^\n]', ' ', m[0]) if m[0].startswith(('/*', '//')) else m[0],
+            source, flags=re.S)
+        self.tokens = [(m[0], source.count('\n', 0, m.start()) + 1) for m in re.finditer(r'"(?:\\.|[^"\\])*"|\x27(?:\\.|[^\x27\\])*\x27|\+\+|--|\+=|-=|<=|>=|==|!=|&&|\|\||[A-Za-z_]\w*|\d+|[^\s]', source)]
         self.pos = 0
 
     def peek(self):
@@ -185,6 +196,9 @@ class BraceParser:
             initial = self.until(';')
             condition = self.until(';')
             update = self.until(')')
+            declaration = re.match(r'^(int|let|var)\s+', initial)
+            if declaration and declaration[1] not in (('let', 'var') if self.language == 'JavaScript' else ('int',)):
+                raise CodeError('Usa let nel for JavaScript oppure int nel for C/Java.', line)
             scoped = bool(re.match(r'^(int|let)\s+', initial))
             initial = re.sub(r'^(int|let|var)\s+', '', initial)
             match = re.fullmatch(r'(\w+)\s*=\s*(.+)', initial)
@@ -206,13 +220,33 @@ class BraceParser:
                 stop = f'({stop}) + 1'
             elif op == '>=':
                 stop = f'({stop}) - 1'
-            return Node('for', line, name=name, start=start, stop=stop, step=step, body=self.block(depth), value=op[0], scoped=scoped)
+            return Node('for', line, name=name, start=start, stop=stop, step=step, body=self.block(depth), value=op[0], scoped=scoped, declares=bool(declaration))
         statement = self.until(';').strip()
         if statement in ('break', ''):
             return Node('break' if statement else 'pass', line)
-        call = re.fullmatch(r'(\w+)\s*\(\s*\)', statement)
-        if call:
-            return Node('command', line, name=call[1])
+        compact = re.sub(r'\s+', '', statement)
+        if self.language == 'C':
+            read = re.fullmatch(r'scanf\("%d",&(\w+)\)', compact)
+            if read:
+                return Node('read', line, name=read[1], scoped=False)
+        read_pattern = r'(?:(let|var)\s+)?(\w+)\s*=\s*Number\s*\(\s*prompt\s*\(\s*\)\s*\)' if self.language == 'JavaScript' else r'(?:(int)\s+)?(\w+)\s*=\s*Integer\s*\.\s*parseInt\s*\(\s*input\s*\.\s*nextLine\s*\(\s*\)\s*\)' if self.language == 'Java' else r'(?!)'
+        read = re.fullmatch(read_pattern, statement)
+        if read:
+            return Node('read', line, name=read[2], scoped=bool(read[1]))
+        declaration = re.fullmatch(r'(int|let|var)\s+(\w+)', statement)
+        if declaration:
+            if declaration[1] not in (('let', 'var') if self.language == 'JavaScript' else ('int',)):
+                raise CodeError('Usa la dichiarazione del linguaggio selezionato.', line)
+            return Node('declare', line, name=declaration[2])
+        if re.match(r'[\w. ]+\s*\(', statement):
+            try:
+                message = output_message(statement, self.language)
+            except ValueError as err:
+                raise CodeError(str(err), line) from None
+            return Node('command', line, name=message)
+        declaration = re.match(r'^(int|bool|boolean|let|var|const)\s+', statement)
+        if declaration and declaration[1] not in (('let', 'var') if self.language == 'JavaScript' else ('int',)):
+            raise CodeError('Usa let in JavaScript oppure int in C e Java.', line)
         statement = re.sub(r'^(int|bool|boolean|let|var|const)\s+', '', statement)
         assign = re.fullmatch(r'(\w+)\s*(=|\+=|-=|\+\+|--)\s*(.*)', statement)
         if assign:
@@ -221,8 +255,8 @@ class BraceParser:
                 value = f'{name} {op[0]} 1'
             elif op in ('+=', '-='):
                 value = f'{name} {op[0]} ({value})'
-            return Node('assign', line, value, name)
-        raise CodeError('Istruzione non riconosciuta. Esempi: avanza(); oppure int i = 0;. Apri «Comandi e codice» per la sintassi.', line)
+            return Node('assign', line, value, name, scoped=bool(declaration))
+        raise CodeError('Istruzione non riconosciuta. Usa output e input standard: apri «Comandi e codice» per la sintassi.', line)
 
     def parse(self):
         out = []
@@ -268,7 +302,7 @@ def parse(source, language):
         if language == 'Python':
             nodes = python_nodes(ast.parse(source).body)
         else:
-            nodes = BraceParser(source).parse()
+            nodes = BraceParser(source, language).parse()
     except (SyntaxError, IndentationError) as err:
         raise CodeError('Controlla la sintassi e i rientri: dopo for, while o if serve «:» e il corpo va rientrato di quattro spazi.', err.lineno or 1)
     except RecursionError:
@@ -280,8 +314,10 @@ def parse(source, language):
         for node in nodes:
             if node.kind == 'command' and node.name not in COMMANDS:
                 raise CodeError(f'«{node.name}» non è un comando del robot. Apri «Comandi e codice» per vedere quelli disponibili.', node.line)
-            if node.kind in ('assign', 'for'):
+            if node.kind in ('assign', 'for', 'read', 'declare'):
                 check_name(node.name, node.line)
+            if node.kind == 'read' and node.name not in SENSORS:
+                raise CodeError('Il protocollo di questa simulazione fornisce input 0/1 soltanto a: ' + ', '.join(SENSORS) + '.', node.line)
             if node.kind in ('assign', 'while', 'do', 'if'):
                 expr_tree(node.value, node.line)
             if node.kind == 'for':
@@ -292,6 +328,40 @@ def parse(source, language):
             validate(node.body, loops + (node.kind in ('for', 'while', 'do')), depth + 1)
             validate(node.other, loops, depth + 1)
     validate(nodes)
+    if language != 'Python':
+        def integer(tree):
+            return (isinstance(tree, ast.Constant) and type(tree.value) is int or
+                    isinstance(tree, ast.Name) or
+                    isinstance(tree, ast.UnaryOp) and isinstance(tree.op, (ast.USub, ast.UAdd)) and integer(tree.operand) or
+                    isinstance(tree, ast.BinOp) and integer(tree.left) and integer(tree.right))
+
+        def boolean(tree):
+            return (isinstance(tree, ast.Compare) or
+                    isinstance(tree, ast.Constant) and type(tree.value) is bool or
+                    isinstance(tree, ast.UnaryOp) and isinstance(tree.op, ast.Not) and boolean(tree.operand) or
+                    isinstance(tree, ast.BoolOp) and all(boolean(v) for v in tree.values))
+        def names(items, outer):
+            declared = set(outer)
+            for n in items:
+                if n.kind == 'for' and not n.declares and n.name not in declared:
+                    raise CodeError('Dichiara prima ' + n.name + (' con let.' if language == 'JavaScript' else ' con int.'), n.line)
+                if language == 'Java':
+                    values = (n.value,) if n.kind == 'assign' else (n.start, n.stop, n.step) if n.kind == 'for' else ()
+                    if any(not integer(expr_tree(value, n.line)) for value in values):
+                        raise CodeError('Una variabile int richiede un valore intero. In Java true, false e i confronti sono booleani, non numeri 0 e 1.', n.line)
+                if n.kind in ('declare', 'assign', 'read'):
+                    if n.kind == 'declare' or n.scoped:
+                        if n.name in declared:
+                            raise CodeError('Variabile già dichiarata: usa una semplice assegnazione per aggiornarla.', n.line)
+                        declared.add(n.name)
+                    elif n.name not in declared:
+                        raise CodeError('Dichiara prima ' + n.name + (' con let.' if language == 'JavaScript' else ' con int.'), n.line)
+                if language == 'Java' and n.kind in ('while', 'do', 'if') and not boolean(expr_tree(n.value, n.line)):
+                    raise CodeError('Java richiede una condizione booleana: confronta il sensore intero con 0, per esempio strada_libera != 0.', n.line)
+                inner = declared | ({n.name} if n.kind == 'for' else set())
+                names(n.body, inner)
+                names(n.other, declared)
+        names(nodes, set())
     return nodes
 
 
@@ -325,6 +395,16 @@ def generate(nodes, language):
     lines = []
     declared = set()
     py = language == 'Python'
+    def input_names(items):
+        for n in items:
+            if n.kind in ('read', 'declare'):
+                yield n.name
+            yield from input_names(n.body)
+            yield from input_names(n.other)
+    if not py:
+        for name in dict.fromkeys(input_names(nodes)):
+            lines.append(('let ' if language == 'JavaScript' else 'int ') + name + ';')
+            declared.add(name)
 
     def emit(items, level=0):
         prefix = '    ' * level
@@ -334,7 +414,21 @@ def generate(nodes, language):
             n.line = len(lines) + 1
             ex = lambda value: format_expr(value, language)
             if n.kind == 'command':
-                lines.append(prefix + n.name + '()' + ('' if py else ';'))
+                lines.append(prefix + output_statement(n.name, language))
+            elif n.kind == 'declare':
+                if not py and n.name not in declared:
+                    lines.append(prefix + ('let ' if language == 'JavaScript' else 'int ') + n.name + ';')
+                    declared.add(n.name)
+            elif n.kind == 'read':
+                if language == 'C':
+                    if n.name not in declared:
+                        lines.append(prefix + 'int ' + n.name + ';')
+                    lines.append(prefix + 'scanf("%d", &' + n.name + ');')
+                else:
+                    declaration = '' if py or n.name in declared else 'let ' if language == 'JavaScript' else 'int '
+                    call = {'Python': 'int(input())', 'JavaScript': 'Number(prompt())', 'Java': 'Integer.parseInt(input.nextLine())'}[language]
+                    lines.append(prefix + declaration + n.name + ' = ' + call + ('' if py else ';'))
+                declared.add(n.name)
             elif n.kind == 'assign':
                 declaration = '' if py or n.name in declared else 'let ' if language == 'JavaScript' else 'int '
                 declared.add(n.name)
@@ -429,6 +523,8 @@ class Interpreter:
         self.outside = 0
         self.trees = {}
         self.line = 1
+        self.output = []
+        self.reads = []
 
     def sensor(self, name):
         w = self.world
@@ -440,8 +536,7 @@ class Interpreter:
                 'segnale_trovato': w.scans >= self.m.signal_after}[name]
 
     def env(self):
-        return dict(self.variables, passi=self.world.steps, raccolte=self.world.collected,
-                    accese=len(self.world.lit), scansioni=self.world.scans)
+        return dict(self.variables)
 
     def evaluate(self, value):
         if value not in self.trees:
@@ -455,8 +550,6 @@ class Interpreter:
                 if e.id not in env:
                     raise CodeError(f'La variabile {e.id} non ha ancora un valore. Inizializzala prima di usarla.', self.line)
                 return env[e.id]
-            if isinstance(e, ast.Call):
-                return self.sensor(e.func.id)
             if isinstance(e, ast.UnaryOp):
                 v = visit(e.operand)
                 return not v if isinstance(e.op, ast.Not) else -v if isinstance(e.op, ast.USub) else v
@@ -494,8 +587,7 @@ class Interpreter:
         self.visited.add(n.kind)
         pretty = format_expr(n.value, self.language)
         observed = ', '.join(f'{name} = {value}' for name, value in self.env().items() if re.search(rf'\b{name}\b', n.value))
-        sensors = ', '.join(f'{name}() = {"vero" if self.sensor(name) else "falso"}' for name in SENSORS if name in n.value)
-        details = '; '.join(x for x in (observed, sensors) if x)
+        details = observed
         if n.kind == 'do' and self.language == 'Python':
             self.frame('Controllo di uscita', f'if {format_expr(negate(n.value), self.language)}: {"FALSO, salta break e ripeti il corpo" if truth else "VERO, esegui break e termina"}. La condizione di ripetizione ({pretty}) vale {"vero" if truth else "falso"}. ' + details, not truth)
         else:
@@ -517,7 +609,7 @@ class Interpreter:
             message = 'Il robot gira di 90 gradi ' + ('a destra' if name == 'destra' else 'a sinistra') + ', restando nella stessa casella.'
         elif name == 'raccogli':
             if (w.x, w.y) not in w.batteries:
-                raise CodeError('In questa casella non c’è una batteria. Osserva se devi prima avanzare oppure controllare sulla_batteria().', self.line)
+                raise CodeError('In questa casella non c’è una batteria. Osserva se devi prima avanzare oppure leggere sulla_batteria con input e confrontarla con 0.', self.line)
             w.batteries.remove((w.x, w.y))
             w.collected += 1
             message = f'Batteria raccolta! Totale: {w.collected}. Rimaste sulla griglia: {len(w.batteries)}.'
@@ -533,13 +625,22 @@ class Interpreter:
             self.covered += 1
         else:
             self.outside += 1
-        self.frame('Azione', message)
+        self.frame('Azione', 'Output: "' + name + '". Il gioco interpreta il messaggio. ' + message)
 
     def execute(self, nodes):
         for n in nodes:
             self.line = n.line
             if n.kind == 'command':
+                self.output.append(n.name)
                 self.command(n.name)
+            elif n.kind == 'declare':
+                self.variables.pop(n.name, None)
+                self.frame('Dichiarazione', f'{n.name}: variabile dichiarata, ancora senza valore.')
+            elif n.kind == 'read':
+                value = int(self.sensor(n.name))
+                self.variables[n.name] = value
+                self.reads.append((n.line, n.name, value))
+                self.frame('Input', f'Leggi {value} dal simulatore in {n.name}. Il valore resta memorizzato fino alla prossima assegnazione o lettura.')
             elif n.kind == 'assign':
                 self.variables[n.name] = self.evaluate(n.value)
                 self.frame('Variabile', f'{n.name} ora vale {self.variables[n.name]}.')
@@ -634,20 +735,14 @@ class Interpreter:
                 (self.m.exact_scans is None or self.world.scans == self.m.exact_scans))
         zero_rule = False
         if self.m.zero_case and self.covered == 0:
-            def has_move(items):
-                return any((n.kind == 'command' and n.name == 'avanza') or has_move(n.body) for n in items)
-            for node in nodes:
-                if node.kind == 'while' and has_move(node.body):
-                    original_x = self.world.x
-                    try:
-                        here = bool(self.evaluate(node.value))
-                        self.world.x -= 1
-                        away = bool(self.evaluate(node.value))
-                        zero_rule = not here and away
-                    except CodeError:
-                        pass
-                    finally:
-                        self.world.x = original_x
+            # Re-run the actual input statements in an alternate initial world.
+            # Constant-false guards and omitted input cannot pass this scenario.
+            from dataclasses import replace
+            alternate = replace(self.m, start=(self.m.start[0] - 1, self.m.start[1]), zero_case=False)
+            if alternate.start[0] >= 0 and alternate.start not in alternate.walls:
+                probe = Interpreter(alternate, self.language, self.limit)
+                alternate_result = probe.run(source)
+                zero_rule = alternate_result.success and probe.world.steps > 0
         mixed_loops = bool(self.visited - {self.m.loop})
         repeated = self.m.loop != 'for' or self.iterations > 1
         rule = self.m.loop in self.visited and not mixed_loops and repeated and self.outside == 0 and (self.covered > 0 or zero_rule)

@@ -13,7 +13,7 @@ def archives(executable=None):
     output = ROOT / 'dist'
     output.mkdir(exist_ok=True)
     docs = ['README.txt', 'README.md', 'LICENZE.txt', 'Avvia_Robot.cmd']
-    previews = ['screenshots/07-completa-il-numero.png', 'screenshots/11-risultato-da-correggere.png']
+    previews = ['screenshots/30-progressi-e-report.png', 'screenshots/07-completa-il-numero.png', 'screenshots/11-risultato-da-correggere.png']
     with zipfile.ZipFile(output / 'LaboratorioRobot-Windows.zip', 'w', zipfile.ZIP_DEFLATED) as z:
         z.write(executable, 'LaboratorioRobot.exe')
         for name in docs + previews:

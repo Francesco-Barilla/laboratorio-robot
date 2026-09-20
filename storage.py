@@ -1,5 +1,6 @@
 """Validated preferences and drafts, saved independently of the previous app."""
 import json
+import classroom
 import os
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ def data_path():
 
 
 def defaults():
-    return dict(language='Python', difficulty='Facile', theme='Notte', size=19, speed=1.0, completed=[], drafts={}, blocks={}, mission='for_pontile')
+    return dict(classroom=classroom.empty(), language='Python', difficulty='Facile', theme='Notte', size=19, speed=1.0, completed=[], drafts={}, blocks={}, mission='for_pontile')
 
 
 def load(path=None):
@@ -40,6 +41,7 @@ def load(path=None):
                     value.get('condition') in CONDITIONS and isinstance(value.get('actions'), list) and
                     len(value['actions']) <= 12 and all(x in COMMANDS for x in value['actions'])):
                     state['blocks'][key] = value
+        state['classroom'] = classroom.clean(incoming.get('classroom'))
         return state, ''
     except FileNotFoundError:
         return state, ''

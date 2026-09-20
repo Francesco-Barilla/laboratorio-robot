@@ -48,10 +48,12 @@ I controlli e le ripetizioni sono contatori didattici: non sono misure di presta
 
 È un **interprete didattico di frammenti**, non un IDE o un compilatore completo. Le istruzioni accettate sono mostrate nella scheda Comandi e codice. Lo studente scrive il frammento della missione senza import, definizioni, classi, main o accesso al sistema.
 
-- Comandi senza argomenti: `avanza()`, `sinistra()`, `destra()`, `raccogli()`, `accendi()`, `scansiona()`.
-- Sensori booleani: `strada_libera()`, `sulla_batteria()`, `sul_traguardo()`, `segnale_trovato()`.
-- Contatori del robot in sola lettura: `passi`, `raccolte`, `accese`, `scansioni`.
-- Variabili intere, assegnazioni, `+=`, `-=`, confronti, `+`, `-`, `*`, condizioni logiche, `if/else`, `break`, cicli. Interi limitati all'intervallo -10000…10000; non sono disponibili divisione, stringhe, array, funzioni o librerie esterne.
+- Output standard: `print("avanza")`, `console.log("avanza");`, `printf("%s\n", "avanza");`, `System.out.println("avanza");`. La funzione stampa testo; il gioco anima il messaggio. Messaggi: avanza, sinistra, destra, raccogli, accendi, scansiona.
+- Input esplicito 0/1: Python `strada_libera = int(input())`; JavaScript `let strada_libera = Number(prompt());`; C `int strada_libera; scanf("%d", &strada_libera);`; Java `int strada_libera = Integer.parseInt(input.nextLine());` con Scanner. Altre variabili di input: sulla_batteria, sul_traguardo, segnale_trovato. Il simulatore fornisce lo stato corrente solo alla lettura. In un programma esterno una persona inserisce gli stessi numeri in ordine. Il nome della variabile non crea un sensore nativo.
+- Nel while leggi prima del ciclo e rileggi alla fine del corpo. Nel do while leggi dopo le azioni, prima del controllo finale. Usa confronti con 0 (validi anche in Java). Omettere una rilettura lascia il vecchio valore.
+- I contatori della scena sono separati dalla memoria del programma. Per contare, inizializza e aggiorna una variabile locale.
+- Comandi e codice mostra il programma completo: Python terminale, JavaScript console del browser con prompt, C con stdio.h/main, Java con Scanner e classe Main.
+- Variabili intere, assegnazioni, `+=`, `-=`, confronti, `+`, `-`, `*`, condizioni logiche, `if/else`, `break`, cicli. Interi limitati all'intervallo -10000…10000; le stringhe sono ammesse per i messaggi di output; non sono disponibili divisione, array o funzioni definite dallo studente.
 - Python: for su `range`, while, if con rientri. Il do while è mostrato come `while True` con controllo finale `if ...: break`. La condizione di uscita è il contrario di quella di ripetizione; si semplificano le doppie negazioni negli esempi.
 - JavaScript, C, Java: blocchi con graffe obbligatorie, punto e virgola, for con contatore intero, confronto al limite e aggiornamento `++`, `--`, `+=`, `-=`. Dichiarazioni mostrate con `let` o `int`. Queste forme condividono un parser didattico: non vengono implementati tutti i sistemi di tipi, scope e conversioni dei linguaggi completi.
 
@@ -93,3 +95,22 @@ python build_release.py
 ## Riferimenti per la didattica
 
 Sintassi e differenze sono state confrontate con la [documentazione Python](https://docs.python.org/3/reference/compound_stmts.html), le [specifiche ECMAScript](https://tc39.es/ecma262/multipage/ecmascript-language-statements-and-declarations.html#sec-iteration-statements), la [Java Language Specification](https://docs.oracle.com/javase/specs/jls/se25/html/jls-14.html) e la [bozza pubblica C11 N1570, §6.8.5](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf). I testi del laboratorio e la grafica sono originali; le licenze dei componenti distribuiti sono in LICENZE.txt.
+
+Le vecchie bozze con funzioni del gioco vengono conservate: il controllo spiega come correggerle usando output e input standard.
+
+
+PROGRESSI E REPORT PER IL DOCENTE
+Il pulsante Progressi e report è sempre in basso. Mostra missioni Gioca
+completate, risposte corrette, errori e percentuale di errore:
+errori / risposte effettivamente controllate x 100. Senza risposte compare —.
+Impara, Gioca e Quiz sono distinti. Ogni verifica del programma conta come
+un tentativo, non come un tentativo per ciascun caso automatico.
+Ripetere lo stesso controllo senza cambiare risposta non aggiunge tentativi;
+una risposta modificata viene contata. Rivedere una traccia non conta.
+Sono visibili anche aiuti e soluzioni consultati. I vecchi completamenti
+restano; non vengono inventati tentativi o errori antecedenti all'aggiornamento.
+Inserisci facoltativamente un nome/codice: identifica l'intero storico di
+questa copia. Esporta report CSV crea un file nella cartella report accanto
+ai progressi, con tutti i linguaggi/livelli e dettaglio delle attività.
+Il registro è locale e modificabile, non sincronizzato né una prova
+antimanomissione. Per il controllo in classe, raccogli i CSV degli studenti.

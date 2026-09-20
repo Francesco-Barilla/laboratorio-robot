@@ -55,7 +55,7 @@ class GuidedUI:
         title = 'COSTRUISCI IL PROGRAMMA' if self.easy else 'COMPLETA IL CODICE' if self.difficulty == 'Medio' else 'SCRIVI IL PROGRAMMA'
         text(s, '1  ' + title, (58, 295), 19, c['mint'], True)
         if self.easy:
-            self.brief('Scegli quante volte ripetere, poi aggiungi i comandi al corpo.' if self.mission.loop == 'for' else 'Scegli quando ripetere, poi aggiungi i comandi al corpo.', (58, 338, 750, 50), 19)
+            self.brief('Scegli quante volte ripetere, poi aggiungi i messaggi da stampare.' if self.mission.loop == 'for' else 'Scegli la condizione e i messaggi. Le letture sono incluse: Codice dei blocchi le mostra.', (58, 338, 750, 50), 19)
             self.blocks()
         else:
             gap = first_gap(self.editor.value, self.language)

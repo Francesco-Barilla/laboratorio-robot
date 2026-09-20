@@ -18,12 +18,12 @@ LESSONS = {
         'title': 'Prima chiedi. Poi agisci.',
         'intro': 'Il while ripete il corpo mentre una condizione è vera. È utile quando la decisione dipende da ciò che il robot osserva, per esempio una strada libera o una batteria nella casella attuale.',
         'sections': (
-            ('Che cosa è una condizione?', 'È una domanda con risposta vero o falso. strada_libera() chiede se il robot può avanzare. i < 5 confronta il valore della variabile i con 5. La condizione non muove il robot: decide se il corpo può essere eseguito.'),
+            ('Che cosa è una condizione?', 'È una domanda con risposta vero o falso. strada_libera != 0 confronta con 0 l’ultimo intero letto: 1 significa strada libera, 0 ostacolo. i < 5 confronta la variabile i con 5. La condizione non legge nuovi dati e non muove il robot: decide se eseguire il corpo.'),
             ('L’ordine dei passaggi', '1. Controlla la condizione. 2. Se è vera, esegui tutto il corpo. 3. Torna al controllo. Se la condizione è falsa, passa all’istruzione dopo il ciclo. Il controllo avviene anche prima della prima ripetizione.'),
-            ('Esempio: un corridoio', 'Il robot guarda davanti a sé con strada_libera(). Se c’è spazio, avanza di una casella. Poi guarda di nuovo. Davanti all’ostacolo il sensore restituisce falso e il robot si ferma. Non occorre conoscere in anticipo la lunghezza del corridoio.'),
+            ('Esempio: un corridoio', 'Prima del while leggi strada_libera con l’input standard del linguaggio. Se il valore è diverso da 0, stampa avanza: il gioco anima il messaggio. Rileggi strada_libera alla fine del corpo. Davanti all’ostacolo ricevi 0 e il ciclo termina. Senza rilettura la variabile conserva il vecchio valore.'),
             ('Può eseguire zero giri', 'Se il robot è già sul traguardo, la condizione «non sono sul traguardo» è falsa fin dall’inizio. Il corpo viene saltato. Nella missione Sei già arrivato il risultato corretto è proprio zero passi.'),
-            ('Qualcosa deve cambiare', 'Un ciclo con condizione sempre vera e un corpo che non la può rendere falsa rischia di continuare senza fine. Se controlli i < 5, ricordati di aggiornare i nel corpo. Se controlli un sensore, osserva se le azioni cambiano ciò che quel sensore legge.'),
-            ('Mentre, non fino a', 'while strada_libera() significa «ripeti mentre la strada è libera». Per ripetere fino al traguardo usi invece «mentre NON sono sul traguardo». Python scrive not; JavaScript, C e Java usano !. È la negazione che capovolge vero e falso.'),
+            ('Qualcosa deve cambiare', 'Una condizione sempre vera rischia di continuare senza fine. Se controlli i < 5, aggiorna i nel corpo. Se controlli un dato della scena, le azioni possono cambiare il mondo ma devi eseguire una nuova lettura per aggiornare la variabile.'),
+            ('Mentre, non fino a', 'while strada_libera != 0 significa «ripeti mentre l’ultimo dato letto indica strada libera». Per continuare fino al traguardo confronta sul_traguardo == 0. Questi confronti producono condizioni booleane valide anche in Java, dove non puoi usare direttamente un intero come condizione.'),
         ),
     },
     'do': {
@@ -32,10 +32,10 @@ LESSONS = {
         'intro': 'Nel do while il robot esegue il corpo prima di controllare se deve ripeterlo. Per questo almeno una esecuzione è garantita, anche quando la condizione di ripetizione è già falsa.',
         'sections': (
             ('L’ordine dei passaggi', '1. Esegui il corpo. 2. Controlla la condizione. 3. Se è vera torna al corpo; se è falsa esci. Il controllo è in fondo: questa posizione cambia il comportamento rispetto al while.'),
-            ('Esempio: cercare un segnale', 'Esegui una scansione. Poi controlla se il segnale manca ancora. Se manca, ripeti. Se è arrivato, termina. Nella missione Un messaggio dallo spazio il segnale arriva alla terza scansione: dopo i primi due tentativi ripeti, dopo il terzo esci.'),
+            ('Esempio: cercare un segnale', 'Stampa scansiona, poi leggi segnale_trovato con l’input standard. Controlla segnale_trovato == 0: se è vero ripeti, altrimenti termina. Nella missione Un messaggio dallo spazio il dato letto vale 1 dopo la terza scansione. La lettura va dopo l’output e prima del controllo finale.'),
             ('Se il segnale è già presente', 'Nella missione Il controllo di conferma il sensore è già vero all’inizio. Il do while esegue comunque una scansione e poi termina, perché «segnale non trovato» è falso. Un while con lo stesso controllo iniziale farebbe zero scansioni.'),
             ('JavaScript, C e Java', 'Scrivi do, il corpo tra parentesi graffe e poi while (condizione);. Non dimenticare il punto e virgola finale. La condizione indica quando RIPETERE: finché il segnale manca, la condizione deve essere vera.'),
-            ('Python: comportamento equivalente', 'Python non ha una istruzione do while nativa. Qui usiamo while True: con il corpo seguito da if e break. Il controllo di uscita è il contrario della condizione di ripetizione: se devi ripetere mentre il segnale manca, esci quando segnale_trovato() è vero. Perciò scrivi if segnale_trovato(): seguito da break. Il laboratorio riconosce questa forma come equivalente del do while.'),
+            ('Python: comportamento equivalente', 'Python non ha una istruzione do while nativa. Usiamo while True: con il corpo seguito da if e break. Dopo l’output leggi segnale_trovato = int(input()). Il controllo di uscita è il contrario di segnale_trovato == 0: if not (segnale_trovato == 0): seguito da break. Il laboratorio riconosce questa forma come equivalente del do while.'),
             ('Che cosa significa break?', 'break termina immediatamente il ciclo più interno. Nel modello Python viene eseguito solo quando non devi più ripetere. Il while True non continua per sempre perché il controllo in fondo può raggiungere break.'),
         ),
     },
@@ -48,12 +48,12 @@ COMPARISON = (
     ('Non confondere azioni, giri e controlli', 'Un giro può contenere due azioni, per esempio avanza e raccogli. Quattro giri producono allora otto azioni. Anche i controlli hanno un loro conteggio: un while che fa quattro giri normalmente controlla cinque volte, perché l’ultimo controllo falso lo fa uscire.'),
 )
 
+from native_context import INPUT_PROTOCOL
+
 HELP = (
-    ('Il programma del robot', 'Scrivi soltanto il frammento con le istruzioni della missione. I comandi del robot sono già disponibili: non servono import, main, classi o funzioni da definire. Nel livello Facile i blocchi generano questo stesso codice. Nel Medio sostituisci ???; nel Difficile costruisci il programma.'),
-    ('Movimento', 'avanza() muove di una casella nella direzione della freccia. sinistra() e destra() ruotano di 90 gradi senza cambiare casella. Nei linguaggi con parentesi graffe aggiungi il punto e virgola: avanza();.'),
-    ('Oggetti e segnale', 'raccogli() prende la batteria sotto il robot. accendi() accende la lampada della casella attuale. scansiona() esegue un tentativo di ricerca: osserva il sensore segnale_trovato() dopo il tentativo.'),
-    ('Sensori: domande vero/falso', 'strada_libera(): posso fare un passo davanti a me? sulla_batteria(): c’è una batteria nella mia casella? sul_traguardo(): sono sulla piattaforma verde? segnale_trovato(): è arrivato il segnale? I sensori non eseguono azioni.'),
-    ('Contatori osservabili', 'passi, raccolte, accese e scansioni mostrano il lavoro del robot e sono di sola lettura. Puoi usarli nelle condizioni. Per un tuo contatore usa un nome come i: i = 0 in Python, let i = 0; in JavaScript, int i = 0; in C e Java.'),
+    ('Il programma del robot', 'Il frammento usa le funzioni standard di output e input del linguaggio. Le funzioni stampano testo nel terminale; il gioco interpreta i messaggi e anima il robot. Il contesto completo qui sopra mostra import, main e Scanner dove necessari.'),
+    ('Messaggi e azioni', 'I testi avanza, sinistra, destra, raccogli, accendi e scansiona sono il protocollo del gioco. Stampa uno di questi messaggi per riga con la funzione standard del linguaggio.'),
+    ('Input e memoria', INPUT_PROTOCOL),
     ('Sintassi disponibile', 'Puoi usare for con contatore e passo, while, do while (equivalente in Python), if/else e break. Le espressioni supportano interi, +, -, *, <, <=, >, >=, ==, != e condizioni logiche. Python usa and, or, not; gli altri linguaggi &&, ||, !. Il for con graffe usa ++, --, += oppure -= per aggiornare il contatore. Le graffe sono obbligatorie per rendere evidente il corpo.'),
     ('Scrivere e correggere', 'Completa i ??? seleziona la parte mancante; Scrivi qui attiva il cursore in fondo alla bozza. Puoi anche cliccare una riga. Invio va a capo; Ctrl+Invio controlla il programma. Tab inserisce quattro spazi. Ctrl+A seleziona tutto; Ctrl+C, Ctrl+X e Ctrl+V copiano, tagliano e incollano; Ctrl+Z annulla e Ctrl+Y ripristina. Rotella e Shift+rotella scorrono il codice, anche nella traccia. Una modifica azzera la verifica precedente, conservando il testo.'),
     ('Un laboratorio guidato', 'L’editor comprende il sottoinsieme di istruzioni descritto qui, con numeri interi tra -10000 e 10000. Non è un ambiente completo per eseguire qualsiasi programma nei quattro linguaggi. Le stesse missioni funzionano offline e non richiedono compilatori installati.'),

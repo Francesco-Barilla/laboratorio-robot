@@ -1,3 +1,4 @@
+from native_io import output_statement
 import copy
 from dataclasses import replace
 import json
@@ -47,8 +48,8 @@ class ExecutionTests(unittest.TestCase):
             mission = BY_KEY['do_uno']
             after = Interpreter(mission, language).run(mission.solution(language))
             self.assertEqual(after.frames[-1].world.scans, 1)
-            loop = Node('while', value='not segnale_trovato()', body=[Node('command', name='scansiona')])
-            before = Interpreter(mission, language).run(generate([loop], language))
+            loop = Node('while', value='segnale_trovato == 0', body=[Node('command', name='scansiona')])
+            before = Interpreter(mission, language).run(generate([Node('read', name='segnale_trovato'), loop], language))
             self.assertEqual(before.frames[-1].world.scans, 0)
             phases = [f.phase for f in after.frames]
             self.assertLess(phases.index('Azione'), phases.index('Controllo di uscita' if language == 'Python' else 'Condizione'))
@@ -58,14 +59,14 @@ class ExecutionTests(unittest.TestCase):
         valid = Interpreter(mission, 'Python').run(mission.solution('Python'))
         self.assertTrue(valid.success)
         self.assertEqual(valid.frames[-1].iterations, 0)
-        for code in ('', 'while False:\n    avanza()', 'while not sul_traguardo():\n    pass', 'avanza()'):
+        for code in ('', 'while False:\n    print("avanza")', 'while not sul_traguardo():\n    pass', 'print("avanza")'):
             self.assertFalse(Interpreter(mission, 'Python').run(code).success, code)
 
     def test_unused_loop_and_manual_commands_do_not_pass(self):
         mission = BY_KEY['for_pontile']
-        manual = 'avanza()\n' * 5
-        for code in (manual, 'for i in range(0):\n    avanza()\n' + manual,
-                     'if False:\n    for i in range(5):\n        avanza()\n' + manual):
+        manual = 'print("avanza")\n' * 5
+        for code in (manual, 'for i in range(0):\n    print("avanza")\n' + manual,
+                     'if False:\n    for i in range(5):\n        print("avanza")\n' + manual):
             result = Interpreter(mission, 'Python').run(code)
             self.assertTrue(result.goal)
             self.assertFalse(result.rule)
@@ -73,15 +74,15 @@ class ExecutionTests(unittest.TestCase):
 
     def test_wrong_loop_reaches_goal_but_not_success(self):
         mission = BY_KEY['for_pontile']
-        code = 'while not sul_traguardo():\n    avanza()'
+        code = 'sul_traguardo = int(input())\nwhile sul_traguardo == 0:\n    print("avanza")\n    sul_traguardo = int(input())'
         result = Interpreter(mission, 'Python').run(code)
         self.assertTrue(result.goal)
         self.assertFalse(result.success)
 
     def test_single_dummy_for_and_mixed_loops_do_not_pass(self):
         mission = BY_KEY['for_pontile']
-        for code in ('for i in range(1):\n' + '    avanza()\n' * 5,
-                     'for i in range(1):\n    while not sul_traguardo():\n        avanza()'):
+        for code in ('for i in range(1):\n' + '    print("avanza")\n' * 5,
+                     'sul_traguardo = int(input())\nfor i in range(1):\n    while sul_traguardo == 0:\n        print("avanza")\n        sul_traguardo = int(input())'):
             result = Interpreter(mission, 'Python').run(code)
             self.assertTrue(result.goal)
             self.assertFalse(result.rule)
@@ -92,7 +93,7 @@ class ExecutionTests(unittest.TestCase):
         result = Interpreter(m, 'Python').run(code)
         checks = [f for f in result.frames if f.phase == 'Controllo di uscita']
         self.assertEqual([f.truth for f in checks], [False, False, True])
-        self.assertTrue(all(code.splitlines()[f.line - 1].strip().startswith('if segnale_trovato()') for f in checks))
+        self.assertTrue(all(code.splitlines()[f.line - 1].strip().startswith('if not segnale_trovato == 0') for f in checks))
         exit_frame = next(f for f in result.frames if f.phase == 'Uscita')
         self.assertEqual(code.splitlines()[exit_frame.line - 1].strip(), 'break')
 
@@ -120,39 +121,39 @@ class ExecutionTests(unittest.TestCase):
 
     def test_native_for_counter_behavior(self):
         mission = replace(MISSIONS[0], goal=(3, 2))
-        py = Interpreter(mission, 'Python').run('for i in range(3):\n    avanza()\n    i = 10')
+        py = Interpreter(mission, 'Python').run('for i in range(3):\n    print("avanza")\n    i = 10')
         self.assertEqual(py.frames[-1].world.steps, 3)
         self.assertEqual(py.frames[-1].variables['i'], 10)
-        js = Interpreter(mission, 'JavaScript').run('for (let i = 0; i < 3; i++) { avanza(); i = 10; }')
+        js = Interpreter(mission, 'JavaScript').run('for (let i = 0; i < 3; i++) { console.log("avanza"); i = 10; }')
         self.assertEqual(js.frames[-1].world.steps, 1)
         self.assertNotIn('i', js.frames[-1].variables)
 
     def test_for_descending_and_inclusive_limits(self):
         m = BY_KEY['for_pontile']
         for language in LANGUAGES:
-            code = 'for i in range(4, -1, -1):\n    avanza()' if language == 'Python' else 'for (int i = 4; i >= 0; i--) { avanza(); }'
+            code = 'for i in range(4, -1, -1):\n    print("avanza")' if language == 'Python' else 'for (' + ('let' if language == 'JavaScript' else 'int') + ' i = 4; i >= 0; i--) { ' + output_statement('avanza', language) + ' }'
             self.assertTrue(Interpreter(m, language).run(code).success)
             translated = generate(parse(code, language), language)
             self.assertTrue(Interpreter(m, language).run(translated).success, translated)
-        self.assertTrue(Interpreter(m, 'C').run('for (int i = 0; i <= 4; i++) { avanza(); }').success)
+        self.assertTrue(Interpreter(m, 'C').run('for (int i = 0; i <= 4; i++) { ' + output_statement('avanza', 'C') + ' }').success)
 
     def test_range_bounds_evaluated_once_but_classic_for_rechecks(self):
         m = MISSIONS[0]
-        py = Interpreter(m, 'Python').run('n = 5\nfor i in range(n):\n    avanza()\n    n = 1')
-        js = Interpreter(m, 'JavaScript').run('let n = 5; for (let i = 0; i < n; i++) { avanza(); n = 1; }')
+        py = Interpreter(m, 'Python').run('n = 5\nfor i in range(n):\n    print("avanza")\n    n = 1')
+        js = Interpreter(m, 'JavaScript').run('let n = 5; for (let i = 0; i < n; i++) { console.log("avanza"); n = 1; }')
         self.assertEqual(py.frames[-1].world.steps, 5)
         self.assertEqual(js.frames[-1].world.steps, 1)
 
     def test_nested_loops_break_and_sensor_conditions(self):
         m = replace(MISSIONS[0], goal=(4, 2))
-        code = 'for i in range(2):\n    for j in range(8):\n        avanza()\n        if j == 1:\n            break'
+        code = 'for i in range(2):\n    for j in range(8):\n        print("avanza")\n        if j == 1:\n            break'
         self.assertTrue(Interpreter(m, 'Python').run(code).success)
-        code = 'while strada_libera() and not sul_traguardo():\n    avanza()'
+        code = 'strada_libera = int(input())\nsul_traguardo = int(input())\nwhile strada_libera != 0 and sul_traguardo == 0:\n    print("avanza")\n    strada_libera = int(input())\n    sul_traguardo = int(input())'
         self.assertTrue(Interpreter(replace(m, loop='while'), 'Python').run(code).success)
 
     def test_student_code_cannot_call_host_or_modify_sensors(self):
         code_samples = ('import os', '__import__("os")', 'open("file")', 'x = (1).__class__',
-                        'passi = 0', 'while True:\n    eval()', 'x = [1] * 9999', 'break', 'x = 10 ** 999')
+                        'while True:\n    eval()', 'x = [1] * 9999', 'break', 'x = 10 ** 999')
         for code in code_samples:
             with self.subTest(code=code):
                 result = Interpreter(MISSIONS[0], 'Python').run(code)
@@ -248,8 +249,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertNotEqual(app.editor.value, app.mission.solution(app.language))
         self.assertEqual(app.editor.value, '')
         app.action('focus_code')
-        app.event(self.pygame.event.Event(self.pygame.TEXTINPUT, text='avanza()'))
-        self.assertEqual(app.editor.value, 'avanza()')
+        app.event(self.pygame.event.Event(self.pygame.TEXTINPUT, text='print("avanza")'))
+        self.assertEqual(app.editor.value, 'print("avanza")')
 
     def test_language_translation_and_incomplete_draft_preservation(self):
         app = self.app()
@@ -317,15 +318,15 @@ class InterfaceTests(unittest.TestCase):
 
     def test_editor_undo_and_multiline_navigation(self):
         from ui import Editor
-        e = Editor('avanza()\n')
+        e = Editor('print("avanza")\n')
         e.focus = True
-        e.replace('raccogli()')
+        e.replace('print("raccogli")')
         e.key(self.pygame.event.Event(self.pygame.KEYDOWN, key=self.pygame.K_z, mod=self.pygame.KMOD_CTRL))
-        self.assertEqual(e.value, 'avanza()\n')
+        self.assertEqual(e.value, 'print("avanza")\n')
         e.key(self.pygame.event.Event(self.pygame.KEYDOWN, key=self.pygame.K_y, mod=self.pygame.KMOD_CTRL))
-        self.assertIn('raccogli()', e.value)
+        self.assertIn('print("raccogli")', e.value)
         e.key(self.pygame.event.Event(self.pygame.KEYDOWN, key=self.pygame.K_a, mod=self.pygame.KMOD_CTRL))
-        e.replace('while strada_libera():\n    avanza()')
+        e.replace('while strada_libera():\n    print("avanza")')
         self.assertEqual(e.value.count('\n'), 1)
 
     def test_hover_all_enabled_controls_and_modal_isolation(self):

@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 from engine import COMMANDS, Node, generate, placeholder_index
 from missions import LOOPS
+from native_io import output_statement
+from native_context import INPUT_PROTOCOL
 
 
 @dataclass(frozen=True)
@@ -24,11 +26,11 @@ PREDICTIONS = {
         'Il robot parte su una lampada. Deve accenderla prima di lasciare la casella; poi ripete sulla successiva.',
         'Il ciclo conserva l’ordine delle istruzioni. Scambiarle cambia ciò che succede, anche con lo stesso numero di giri.'),
     'while_corridoio': Prediction('Davanti al muro, che cosa farà il while?', ('Avanza un’ultima volta', 'Esce senza avanzare', 'Gira da solo'), 1,
-        'strada_libera() è falso davanti al muro. Il controllo precede il corpo, quindi avanza() viene saltato.',
-        'Leggere un sensore non sposta il robot. Il movimento avviene soltanto quando viene eseguito avanza().'),
+        'strada_libera è falso davanti al muro. Il controllo precede il corpo, quindi il messaggio avanza viene saltato.',
+        'Leggere un sensore non sposta il robot. Il movimento avviene soltanto quando viene eseguito il messaggio avanza.'),
     'while_traccia': Prediction('Sulla prima casella vuota, cosa succede?', ('Raccoglie lo stesso', 'Torna indietro', 'Esce dal ciclo'), 2,
-        'sulla_batteria() osserva la casella attuale. Sulla prima casella vuota è falso: il corpo non riparte.',
-        'sulla_batteria() guarda sotto il robot; strada_libera() guarda davanti. I sensori rispondono a domande diverse.'),
+        'sulla_batteria osserva la casella attuale. Sulla prima casella vuota è falso: il corpo non riparte.',
+        'sulla_batteria guarda sotto il robot; strada_libera guarda davanti. I sensori rispondono a domande diverse.'),
     'while_zero': Prediction('È già sul traguardo: quanti passi farà?', ('0 passi', '1 passo', '2 passi'), 0,
         'Il primo controllo è già falso: non sono sul traguardo è falso. Il corpo viene saltato; restare fermo è corretto.',
         'Un while può fare zero giri. Il corpo deve comunque contenere il lavoro da svolgere se la condizione fosse vera.'),
@@ -72,13 +74,13 @@ def writing_task(mission, code, language):
         return ('Scrivi un numero intero al posto di ???.',
                 'È il limite escluso del for: con partenza 0 e passo 1 indica quanti giri fare.')
     if gap and gap.kind == 'action':
-        return ('Scrivi un comando del robot con le parentesi: per esempio avanza().',
+        return ('Scrivi un output standard: ' + output_statement(mission.actions[0], language).rstrip(';'),
                 'Sostituisci solo ???. Mantieni il rientro' + (' e il ; già presente.' if language != 'Python' else ' già presente.'))
     if gap:
         return ('Scrivi la condizione al posto di ???.', 'La condizione è un controllo vero/falso. Conserva la punteggiatura già scritta.')
     if not meaningful_code(code):
         return (f'Scrivi il programma usando {LOOPS[mission.loop]}.',
-                'Premi Scrivi qui e usa la tastiera. Robot, comandi e sensori sono già preparati.')
+                'Premi Scrivi qui. Comandi e codice mostra output, input e il programma completo.')
     return ('Modifica il programma, poi premi Controlla il mio programma.',
             'Clicca la riga da correggere. Scrivi qui porta il cursore in fondo alla bozza.')
 
@@ -90,28 +92,30 @@ def writing_issue(mission, code, language, easy):
         return 'Il programma è vuoto. Premi Scrivi qui e scrivi il ciclo; Cosa devo scrivere? mostra un esempio completo.'
     gap = first_gap(code, language)
     if gap:
-        label = {'number': 'il numero limite', 'action': 'un comando con le parentesi', 'condition': 'la condizione'}[gap.kind]
+        label = {'number': 'il numero limite', 'action': 'una istruzione di output standard', 'condition': 'la condizione'}[gap.kind]
         return f'Riga {gap.line}: manca {label}. Premi Completa i ???, poi digita solo la parte mancante.'
     return ''
 
 
 def syntax_example(mission, language):
-    condition = 'not (scansioni >= 2)' if mission.loop == 'do' and language == 'Python' else 'scansioni < 2'
-    node = Node(mission.loop, name='i', stop='3', value='' if mission.loop == 'for' else condition, body=[Node('command', name='scansiona')])
-    return generate([node], language)
+    body = [Node('command', name='scansiona')]
+    if mission.loop != 'for':
+        body.append(Node('assign', name='tentativi', value='tentativi + 1'))
+    node = Node(mission.loop, name='i', stop='3', value='' if mission.loop == 'for' else 'tentativi < 2', body=body)
+    return generate(([Node('assign', name='tentativi', value='0')] if mission.loop != 'for' else []) + [node], language)
 
 
 def writing_sections(mission, language, code, easy=False):
     title, instruction = writing_task(mission, code, language)
-    sections = [('Cosa fare adesso', 'Scegli il numero o la condizione, poi aggiungi i comandi con +. Il corpo è l’elenco ripetuto a ogni giro. Le frecce cambiano l’ordine; × elimina un comando.' if easy else title + '\n' + instruction),
+    sections = [('Cosa fare adesso', 'Scegli il numero o la condizione, poi aggiungi i messaggi con +. I blocchi inseriscono le letture prima del while e alla fine del corpo; Codice dei blocchi le mostra. Il corpo è l’elenco ripetuto a ogni giro. Le frecce cambiano l’ordine; × elimina un comando.' if easy else title + '\n' + instruction),
                 ('La missione', mission.objective),
                 ('Come leggere il ciclo', {'for': 'Il contatore parte da 0. Il limite è escluso. A ogni giro esegui tutto il corpo, poi passa al valore successivo.',
                  'while': 'Controlla prima: vero → esegui tutto il corpo e ricontrolla; falso → esci. Il corpo può essere saltato fin dall’inizio.',
                  'do': 'Esegui il corpo, poi controlla se ripetere. Almeno un giro è garantito. In Python si usa while True con if e break in fondo; quel controllo indica quando uscire.'}[mission.loop]),
                 ('Esempio di forma · ' + language, syntax_example(mission, language)),
-                ('Adatta l’esempio alla missione', 'L’esempio fa scansioni per mostrare la sintassi. Scegli numero, sensori e azioni adatti all’obiettivo qui sopra. I comandi esistono già: non scrivere main, classi o definizioni di funzioni.'),
-                ('Comandi utili qui', '\n'.join(name + '()' + ('' if language == 'Python' else ';') + ' = ' + COMMANDS[name] for name in mission.actions)),
-                ('Sensori e contatori', 'strada_libera(): guarda davanti. sulla_batteria(): guarda sotto il robot. sul_traguardo(): sei sulla piattaforma? segnale_trovato(): è arrivato il segnale?\nI sensori restituiscono vero/falso (1/0) e non muovono il robot. passi, raccolte, accese, scansioni sono contatori già aggiornati dal gioco.'),
+                ('Adatta l’esempio alla missione', 'L’esempio stampa scansiona e aggiorna un contatore locale. Nel tuo programma scegli i messaggi e le letture adatti. Comandi e codice mostra il contesto completo con main e Scanner dove servono.'),
+                ('Output utili qui', '\n'.join(output_statement(name, language) + ' → ' + COMMANDS[name] for name in mission.actions)),
+                ('Sensori e contatori', INPUT_PROTOCOL),
                 ('Punteggiatura e rientri', 'Invio va a capo; Tab inserisce quattro spazi. Il corpo è rientrato rispetto a for o while; il corpo di if richiede un altro rientro.' if language == 'Python' else 'Le graffe racchiudono il corpo. I comandi terminano con ;. Il do while termina con while (condizione);, compreso il punto e virgola finale.'),
                 ('Controlla e osserva', 'Controlla i blocchi verifica subito il risultato. Osserva passo passo mostra poi come è stato ottenuto.' if easy else 'Controlla il mio programma (anche Ctrl+Invio) verifica subito il risultato. Osserva passo passo mostra come è stato ottenuto; leggere una soluzione non completa la missione.'),
                 ('Equivoco da evitare', PREDICTIONS[mission.key].misconception)]
@@ -120,10 +124,10 @@ def writing_sections(mission, language, code, easy=False):
 
 def misconceptions(mission):
     return [('In questa missione', PREDICTIONS[mission.key].misconception),
-            ('Un passo del programma non è un passo del robot', 'La traccia mostra anche i controlli e gli aggiornamenti. Solo avanza() cambia casella; scansiona() cerca un segnale restando fermo.'),
+            ('Un passo del programma non è un passo del robot', 'La traccia mostra anche i controlli e gli aggiornamenti. Solo il messaggio avanza cambia casella; il messaggio scansiona cerca un segnale restando fermo.'),
             ('Giri, azioni e controlli', 'Con due comandi nel corpo, quattro giri eseguono otto azioni. Un while di quattro giri controlla normalmente cinque volte: l’ultimo falso lo fa uscire.'),
-            ('Vero significa ripeti', 'while condizione ripete mentre è vera. Per continuare fino al traguardo serve non sul_traguardo(). In Python not, negli altri linguaggi !. Nell’if finale del do while Python, invece, vero esegue break e termina.'),
-            ('Il ciclo non si ferma da solo', 'Se il corpo non cambia ciò che controlli, la condizione può rimanere vera. Il laboratorio mette in pausa dopo 1400 passaggi: controlla contatori e sensori; il limite non dimostra da solo un ciclo infinito.'),
+            ('Vero significa ripeti', 'while condizione ripete mentre è vera. Per continuare fino al traguardo serve sul_traguardo == 0, dopo aver letto il valore. Nell’if finale del do while Python, invece, vero esegue break e termina.'),
+            ('Il ciclo non si ferma da solo', 'Se il corpo non cambia ciò che controlli, la condizione può rimanere vera. Il laboratorio mette in pausa dopo 1400 passaggi: aggiorna i contatori e rileggi i sensori con input; il limite non dimostra da solo un ciclo infinito.'),
             ('Arrivare non basta a usare un ciclo', 'Le azioni richieste devono essere dentro il ciclo indicato. Scrivere i passi uno per uno fuori dal ciclo non allena la ripetizione.')]
 
 

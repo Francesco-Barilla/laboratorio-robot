@@ -1,3 +1,4 @@
+from native_io import output_statement
 """Real beginner interactions: typing, checking, predicting and replaying."""
 import os
 os.environ['SDL_VIDEODRIVER'] = 'dummy'
@@ -42,7 +43,7 @@ class GuidanceTests(unittest.TestCase):
 
     def test_focus_replaces_only_gap_and_checks_in_all_languages(self):
         for language in LANGUAGES:
-            for mission, answer in [('for_pontile', '5'), ('while_corridoio', 'avanza()'), ('do_segnale', 'scansiona()')]:
+            for mission, answer in [('for_pontile', '5'), ('while_corridoio', output_statement('avanza', language).rstrip(';')), ('do_segnale', output_statement('scansiona', language).rstrip(';'))]:
                 with self.subTest(language=language, mission=mission):
                     app = self.app(mission, language=language)
                     original = app.editor.value
@@ -59,7 +60,7 @@ class GuidanceTests(unittest.TestCase):
 
     def test_ctrl_enter_checks_without_adding_a_newline(self):
         app = self.app()
-        app.editor.set('for i in range(5):\n    avanza()')
+        app.editor.set('for i in range(5):\n    print("avanza")')
         app.editor.focus = True
         before = app.editor.value
         app.event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=pygame.KMOD_CTRL))
@@ -69,7 +70,7 @@ class GuidanceTests(unittest.TestCase):
 
     def test_wrong_program_shows_final_state_then_edit_clears_verdict(self):
         app = self.app()
-        app.editor.set('for i in range(4):\n    avanza()')
+        app.editor.set('for i in range(4):\n    print("avanza")')
         app.action('verify')
         self.assertIsNotNone(getattr(app, 'verification', None))
         self.assertFalse(app.verification.success)
@@ -92,12 +93,12 @@ class GuidanceTests(unittest.TestCase):
             app = self.app(difficulty='Difficile', language=language)
             app.editor.set(comment)
             app.action('focus_code')
-            app.event(pygame.event.Event(pygame.TEXTINPUT, text='avanza()'))
-            self.assertEqual(app.editor.value, comment + '\navanza()')
+            app.event(pygame.event.Event(pygame.TEXTINPUT, text='print("avanza")'))
+            self.assertEqual(app.editor.value, comment + '\nprint("avanza")')
 
     def test_trace_preserves_draft_and_selection_and_allows_horizontal_scroll(self):
         app = self.app('while_corridoio', difficulty='Difficile')
-        app.editor.set('while ' + ' and '.join(['strada_libera()'] * 8) + ':\n    avanza()')
+        app.editor.set('while ' + ' and '.join(['strada_libera()'] * 8) + ':\n    print("avanza")')
         app.editor.anchor, app.editor.caret = 3, 12
         before = app.editor.snapshot()
         app.action('trace')
@@ -119,7 +120,7 @@ class GuidanceTests(unittest.TestCase):
 
     def test_replaying_trace_never_awards_completion(self):
         app = self.app()
-        app.editor.set('for i in range(5):\n    avanza()')
+        app.editor.set('for i in range(5):\n    print("avanza")')
         app.action('trace')
         for replay in range(2):
             if replay:
@@ -158,13 +159,13 @@ class GuidanceTests(unittest.TestCase):
 
     def test_learn_opens_with_question_and_game_keeps_its_own_draft(self):
         app = self.app(difficulty='Difficile')
-        app.editor.set('for i in range(2):\n    avanza()')
+        app.editor.set('for i in range(2):\n    print("avanza")')
         app.navigate('catalog')
         app.mode = 'learn'
         app.open_mission('for_pontile')
         self.assertIsNone(app.modal)
         app.action('try_game')
-        self.assertEqual(app.editor.value, 'for i in range(2):\n    avanza()')
+        self.assertEqual(app.editor.value, 'for i in range(2):\n    print("avanza")')
 
     def test_placeholder_in_comments_is_not_executable_code(self):
         for language in LANGUAGES:
